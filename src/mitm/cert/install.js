@@ -247,12 +247,11 @@ async function installCertLinux(sudoPassword, certPath) {
 }
 
 async function uninstallCertLinux(sudoPassword) {
-  // Always try to uninstall from user DBs even without sudo
-  await updateNssDatabases(null, 'delete');
-
   if (!isSudoAvailable()) {
     return;
   }
+
+  await updateNssDatabases(null, 'delete');
   
   const config = getLinuxCertConfig();
   const destFile = `${config.dir}/9router-root-ca.crt`;

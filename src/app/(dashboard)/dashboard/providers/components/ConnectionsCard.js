@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useReducer } from "react";
 import { getStatusVariant as getConnectionStatusVariant } from "@/shared/utils/connectionStatus";
 import PropTypes from "prop-types";
 import { Card, Badge, Button, Modal, Select, Toggle, EditConnectionModal, ConfirmModal } from "@/shared/components";
@@ -33,7 +33,7 @@ CooldownTimer.propTypes = { until: PropTypes.string.isRequired };
 function ConnectionRow({ connection, proxyPools, isOAuth, isFirst, isLast, onMoveUp, onMoveDown, onToggleActive, onUpdateProxy, onEdit, onDelete }) {
   const [showProxyDropdown, setShowProxyDropdown] = useState(false);
   const [updatingProxy, setUpdatingProxy] = useState(false);
-  const [isCooldown, setIsCooldown] = useState(false);
+  const [, forceCooldownUpdate] = useReducer((c) => c + 1, 0);
   const proxyDropdownRef = useRef(null);
 
   const proxyPoolMap = new Map((proxyPools || []).map((p) => [p.id, p]));
@@ -59,21 +59,20 @@ function ConnectionRow({ connection, proxyPools, isOAuth, isFirst, isLast, onMov
   const noProxyText = boundProxyPool?.noProxy || connection.providerSpecificData?.connectionNoProxy || "";
   const proxyBadgeVariant = boundProxyPool?.isActive === true ? "success" : (boundProxyPoolId || hasLegacyProxy) ? "error" : "default";
 
-  const modelLockUntil = Object.entries(connection)
-    .filter(([k]) => k.startsWith("modelLock_"))
-    .map(([, v]) => v).filter(Boolean).sort()[0] || null;
+  const modelLockEntries = [];
+  for (const [k, v] of Object.entries(connection)) { if (k.startsWith("modelLock_") && v) modelLockEntries.push(v); }
+  const modelLockUntil = modelLockEntries.length
+    ? modelLockEntries.reduce((min, v) => (v < min ? v : min))
+    : null;
 
   useEffect(() => {
-    const check = () => {
-      const until = Object.entries(connection)
-        .filter(([k]) => k.startsWith("modelLock_"))
-        .map(([, v]) => v).filter(v => v && new Date(v).getTime() > Date.now()).sort()[0] || null;
-      setIsCooldown(!!until);
-    };
-    check();
-    const t = modelLockUntil ? setInterval(check, 1000) : null;
-    return () => { if (t) clearInterval(t); };
+    if (!modelLockUntil) return;
+    const t = setInterval(() => forceCooldownUpdate(), 1000);
+    return () => clearInterval(t);
   }, [modelLockUntil]);
+
+  // forceCooldownUpdate triggers periodic re-evaluation for cooldown display
+  const isCooldown = modelLockUntil ? new Date(modelLockUntil).getTime() > Date.now() : false;
 
   useEffect(() => {
     if (!showProxyDropdown) return;
@@ -103,10 +102,10 @@ function ConnectionRow({ connection, proxyPools, isOAuth, isFirst, isLast, onMov
     <div className={`group flex flex-col gap-3 p-2 rounded-lg sm:flex-row sm:items-center sm:justify-between hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors ${connection.isActive === false ? "opacity-60" : ""}`}>
       <div className="flex w-full min-w-0 flex-1 items-start gap-3 sm:items-center">
         <div className="flex flex-col">
-          <button onClick={onMoveUp} disabled={isFirst} className={`p-0.5 rounded ${isFirst ? "text-text-muted/30 cursor-not-allowed" : "hover:bg-sidebar text-text-muted hover:text-primary"}`}>
+          <button type="button" onClick={onMoveUp} disabled={isFirst} className={`p-0.5 rounded ${isFirst ? "text-text-muted/30 cursor-not-allowed" : "hover:bg-sidebar text-text-muted hover:text-primary"}`}>
             <span className="material-symbols-outlined text-sm">keyboard_arrow_up</span>
           </button>
-          <button onClick={onMoveDown} disabled={isLast} className={`p-0.5 rounded ${isLast ? "text-text-muted/30 cursor-not-allowed" : "hover:bg-sidebar text-text-muted hover:text-primary"}`}>
+          <button type="button" onClick={onMoveDown} disabled={isLast} className={`p-0.5 rounded ${isLast ? "text-text-muted/30 cursor-not-allowed" : "hover:bg-sidebar text-text-muted hover:text-primary"}`}>
             <span className="material-symbols-outlined text-sm">keyboard_arrow_down</span>
           </button>
         </div>
@@ -138,6 +137,7 @@ function ConnectionRow({ connection, proxyPools, isOAuth, isFirst, isLast, onMov
           {(proxyPools || []).length > 0 && (
             <div className="relative" ref={proxyDropdownRef}>
               <button
+                type="button"
                 onClick={() => setShowProxyDropdown((v) => !v)}
                 className={`flex flex-col items-center px-2 py-1 rounded hover:bg-black/5 dark:hover:bg-white/5 transition-colors ${hasAnyProxy ? "text-primary" : "text-text-muted hover:text-primary"}`}
                 disabled={updatingProxy}
@@ -147,19 +147,19 @@ function ConnectionRow({ connection, proxyPools, isOAuth, isFirst, isLast, onMov
               </button>
               {showProxyDropdown && (
                 <div className="absolute right-0 top-full mt-1 z-50 bg-bg border border-border rounded-lg shadow-lg py-1 min-w-[160px]">
-                  <button onClick={() => handleSelectProxy("__none__")} className={`w-full text-left px-3 py-1.5 text-sm hover:bg-black/5 dark:hover:bg-white/5 ${!boundProxyPoolId ? "text-primary font-medium" : "text-text-main"}`}>None</button>
+                  <button type="button" onClick={() => handleSelectProxy("__none__")} className={`w-full text-left px-3 py-1.5 text-sm hover:bg-black/5 dark:hover:bg-white/5 ${!boundProxyPoolId ? "text-primary font-medium" : "text-text-main"}`}>None</button>
                   {(proxyPools || []).map((pool) => (
-                    <button key={pool.id} onClick={() => handleSelectProxy(pool.id)} className={`w-full text-left px-3 py-1.5 text-sm hover:bg-black/5 dark:hover:bg-white/5 ${boundProxyPoolId === pool.id ? "text-primary font-medium" : "text-text-main"}`}>{pool.name}</button>
+                    <button type="button" key={pool.id} onClick={() => handleSelectProxy(pool.id)} className={`w-full text-left px-3 py-1.5 text-sm hover:bg-black/5 dark:hover:bg-white/5 ${boundProxyPoolId === pool.id ? "text-primary font-medium" : "text-text-main"}`}>{pool.name}</button>
                   ))}
                 </div>
               )}
             </div>
           )}
-          <button onClick={onEdit} className="flex flex-col items-center px-2 py-1 rounded hover:bg-black/5 dark:hover:bg-white/5 text-text-muted hover:text-primary">
+          <button type="button" onClick={onEdit} className="flex flex-col items-center px-2 py-1 rounded hover:bg-black/5 dark:hover:bg-white/5 text-text-muted hover:text-primary">
             <span className="material-symbols-outlined text-[18px]">edit</span>
             <span className="text-[10px] leading-tight">Edit</span>
           </button>
-          <button onClick={onDelete} className="flex flex-col items-center px-2 py-1 rounded hover:bg-red-500/10 text-red-500">
+          <button type="button" onClick={onDelete} className="flex flex-col items-center px-2 py-1 rounded hover:bg-red-500/10 text-red-500">
             <span className="material-symbols-outlined text-[18px]">delete</span>
             <span className="text-[10px] leading-tight">Delete</span>
           </button>
@@ -248,13 +248,13 @@ function AddApiKeyModal({ isOpen, provider, providerName, proxyPools, onSave, on
     <Modal isOpen={isOpen} title={`Add ${providerName || provider} API Key`} onClose={onClose}>
       <div className="flex flex-col gap-4">
         <div>
-          <label className="text-xs text-text-muted mb-1 block">Name</label>
-          <input className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="Production Key" />
+          <label htmlFor="conn-name" className="text-xs text-text-muted mb-1 block">Name</label>
+          <input id="conn-name" className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="Production Key" />
         </div>
         <div className="flex gap-2">
           <div className="flex-1">
-            <label className="text-xs text-text-muted mb-1 block">API Key</label>
-            <input type="password" className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary" value={formData.apiKey} onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })} />
+            <label htmlFor="conn-api-key" className="text-xs text-text-muted mb-1 block">API Key</label>
+            <input id="conn-api-key" type="password" className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary" value={formData.apiKey} onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })} />
           </div>
           <div className="pt-6">
             <Button onClick={handleValidate} disabled={!formData.apiKey || validating || saving} variant="secondary">
@@ -268,8 +268,8 @@ function AddApiKeyModal({ isOpen, provider, providerName, proxyPools, onSave, on
           </Badge>
         )}
         <div>
-          <label className="text-xs text-text-muted mb-1 block">Priority</label>
-          <input type="number" className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary" value={formData.priority} onChange={(e) => setFormData({ ...formData, priority: Number.parseInt(e.target.value) || 1 })} />
+          <label htmlFor="conn-priority" className="text-xs text-text-muted mb-1 block">Priority</label>
+          <input id="conn-priority" type="number" className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary" value={formData.priority} onChange={(e) => setFormData({ ...formData, priority: Number.parseInt(e.target.value) || 1 })} />
         </div>
         <Select label="Proxy Pool" value={formData.proxyPoolId} onChange={(e) => setFormData({ ...formData, proxyPoolId: e.target.value })}
           options={[{ value: NONE, label: "None" }, ...(proxyPools || []).map((p) => ({ value: p.id, label: p.name }))]} />
@@ -295,16 +295,35 @@ AddApiKeyModal.propTypes = {
 
 // ── ConnectionsCard ────────────────────────────────────────────
 // Self-contained card: fetches, displays and manages all connections for a provider.
+function connectionsReducer(state, action) {
+  switch (action.type) {
+    case "SET_DATA":
+      return { ...state, ...action.values, loading: false };
+    case "SET":
+      return { ...state, [action.key]: action.value };
+    case "SET_LOADING":
+      return { ...state, loading: action.loading };
+    case "UPDATE_CONN":
+      return { ...state, connections: state.connections.map((c) => c.id === action.id ? { ...c, ...action.patch } : c) };
+    case "REMOVE_CONN":
+      return { ...state, connections: state.connections.filter((c) => c.id !== action.id) };
+    default:
+      return state;
+  }
+}
+
 export default function ConnectionsCard({ providerId, isOAuth }) {
-  const [connections, setConnections] = useState([]);
-  const [proxyPools, setProxyPools] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [selectedConnection, setSelectedConnection] = useState(null);
-  const [providerStrategy, setProviderStrategy] = useState(null);
-  const [providerStickyLimit, setProviderStickyLimit] = useState("1");
-  const [confirmState, setConfirmState] = useState(null);
+  const [state, dispatch] = useReducer(connectionsReducer, {
+    connections: [],
+    proxyPools: [],
+    loading: true,
+    showAddModal: false,
+    showEditModal: false,
+    selectedConnection: null,
+    providerStrategy: null,
+    providerStickyLimit: "1",
+    confirmState: null,
+  });
 
   const fetch_ = useCallback(async () => {
     try {
@@ -313,39 +332,43 @@ export default function ConnectionsCard({ providerId, isOAuth }) {
         fetch("/api/proxy-pools?isActive=true", { cache: "no-store" }),
         fetch("/api/settings", { cache: "no-store" }),
       ]);
-      const connData = await connRes.json();
-      const proxyData = await proxyRes.json();
-      const settingsData = settingsRes.ok ? await settingsRes.json() : {};
-      if (connRes.ok) setConnections((connData.connections || []).filter((c) => c.provider === providerId));
-      if (proxyRes.ok) setProxyPools(proxyData.proxyPools || []);
+      const [connData, proxyData, settingsData] = await Promise.all([
+        connRes.json(),
+        proxyRes.json(),
+        settingsRes.ok ? settingsRes.json() : Promise.resolve({}),
+      ]);
       const override = (settingsData.providerStrategies || {})[providerId] || {};
-      setProviderStrategy(override.fallbackStrategy || null);
-      setProviderStickyLimit(override.stickyRoundRobinLimit != null ? String(override.stickyRoundRobinLimit) : "1");
-    } catch (e) { console.log("ConnectionsCard fetch error:", e); }
-    finally { setLoading(false); }
+      dispatch({ type: "SET_DATA", values: {
+        connections: connRes.ok ? (connData.connections || []).filter((c) => c.provider === providerId) : [],
+        proxyPools: proxyRes.ok ? proxyData.proxyPools || [] : [],
+        providerStrategy: override.fallbackStrategy || null,
+        providerStickyLimit: override.stickyRoundRobinLimit != null ? String(override.stickyRoundRobinLimit) : "1",
+      }});
+    } catch (e) { console.log("ConnectionsCard fetch error:", e); dispatch({ type: "SET_LOADING", loading: false }); }
   }, [providerId]);
 
+  // eslint-disable-next-line react-hooks/no-derived-state -- async API fetch, not synchronous derivation
   useEffect(() => { fetch_(); }, [fetch_]);
 
   const saveStrategy = async (strategy, stickyLimit) => {
     try {
-      const res = await fetch("/api/settings", { cache: "no-store" });
-      const data = res.ok ? await res.json() : {};
-      const current = data.providerStrategies || {};
       const override = {};
       if (strategy) override.fallbackStrategy = strategy;
       if (strategy === "round-robin" && stickyLimit !== "") override.stickyRoundRobinLimit = Number(stickyLimit) || 3;
-      const updated = { ...current };
-      if (Object.keys(override).length === 0) delete updated[providerId];
-      else updated[providerId] = override;
-      await fetch("/api/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ providerStrategies: updated }) });
+      await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          providerStrategies: { [providerId]: override },
+        }),
+      });
     } catch (e) { console.log("saveStrategy error:", e); }
   };
 
   const handleSwapPriority = async (i1, i2) => {
-    const next = [...connections];
+    const next = [...state.connections];
     [next[i1], next[i2]] = [next[i2], next[i1]];
-    setConnections(next);
+    dispatch({ type: "SET", key: "connections", value: next });
     try {
       await Promise.all([
         fetch(`/api/providers/${next[i1].id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ priority: i1 }) }),
@@ -355,48 +378,51 @@ export default function ConnectionsCard({ providerId, isOAuth }) {
   };
 
   const handleDelete = async (id) => {
-    setConfirmState({
+    dispatch({ type: "SET", key: "confirmState", value: {
       title: "Delete Connection",
       message: "Delete this connection?",
       onConfirm: async () => {
-        setConfirmState(null);
+        dispatch({ type: "SET", key: "confirmState", value: null });
         try {
           const res = await fetch(`/api/providers/${id}`, { method: "DELETE" });
-          if (res.ok) setConnections((prev) => prev.filter((c) => c.id !== id));
+          if (res.ok) dispatch({ type: "REMOVE_CONN", id });
         } catch (e) { console.log("delete error:", e); }
       }
-    });
+    }});
   };
 
   const handleToggleActive = async (id, isActive) => {
     try {
       const res = await fetch(`/api/providers/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ isActive }) });
-      if (res.ok) setConnections((prev) => prev.map((c) => c.id === id ? { ...c, isActive } : c));
+      if (res.ok) dispatch({ type: "UPDATE_CONN", id, patch: { isActive } });
     } catch (e) { console.log("toggle error:", e); }
   };
 
   const handleUpdateProxy = async (connId, proxyPoolId) => {
     try {
       const res = await fetch(`/api/providers/${connId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ proxyPoolId: proxyPoolId || null }) });
-      if (res.ok) setConnections((prev) => prev.map((c) => c.id === connId ? { ...c, providerSpecificData: { ...c.providerSpecificData, proxyPoolId: proxyPoolId || null } } : c));
+      if (res.ok) {
+        const conn = state.connections.find((c) => c.id === connId);
+        if (conn) dispatch({ type: "UPDATE_CONN", id: connId, patch: { providerSpecificData: { ...conn.providerSpecificData, proxyPoolId: proxyPoolId || null } } });
+      }
     } catch (e) { console.log("proxy error:", e); }
   };
 
   const handleSaveApiKey = async (formData) => {
     try {
       const res = await fetch("/api/providers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider: providerId, ...formData }) });
-      if (res.ok) { await fetch_(); setShowAddModal(false); }
+      if (res.ok) { await fetch_(); dispatch({ type: "SET", key: "showAddModal", value: false }); }
     } catch (e) { console.log("save apikey error:", e); }
   };
 
   const handleUpdateConnection = async (formData) => {
     try {
-      const res = await fetch(`/api/providers/${selectedConnection.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(formData) });
-      if (res.ok) { await fetch_(); setShowEditModal(false); }
+      const res = await fetch(`/api/providers/${state.selectedConnection.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(formData) });
+      if (res.ok) { await fetch_(); dispatch({ type: "SET", key: "showEditModal", value: false }); }
     } catch (e) { console.log("update connection error:", e); }
   };
 
-  if (loading) return <Card><div className="h-20 animate-pulse bg-black/5 rounded-lg" /></Card>;
+  if (state.loading) return <Card><div className="h-20 animate-pulse bg-black/5 rounded-lg" /></Card>;
 
   return (
     <>
@@ -406,20 +432,21 @@ export default function ConnectionsCard({ providerId, isOAuth }) {
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs text-text-muted font-medium">Round Robin</span>
             <Toggle
-              checked={providerStrategy === "round-robin"}
+              checked={state.providerStrategy === "round-robin"}
               onChange={(enabled) => {
                 const strategy = enabled ? "round-robin" : null;
-                setProviderStrategy(strategy);
-                if (enabled && !providerStickyLimit) setProviderStickyLimit("1");
-                saveStrategy(strategy, enabled ? (providerStickyLimit || "1") : providerStickyLimit);
+                dispatch({ type: "SET", key: "providerStrategy", value: strategy });
+                if (enabled && !state.providerStickyLimit) dispatch({ type: "SET", key: "providerStickyLimit", value: "1" });
+                saveStrategy(strategy, enabled ? (state.providerStickyLimit || "1") : state.providerStickyLimit);
               }}
             />
-            {providerStrategy === "round-robin" && (
+            {state.providerStrategy === "round-robin" && (
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="text-xs text-text-muted">Sticky:</span>
                 <input
-                  type="number" min={1} value={providerStickyLimit}
-                  onChange={(e) => { setProviderStickyLimit(e.target.value); saveStrategy("round-robin", e.target.value); }}
+                  type="number" min={1} value={state.providerStickyLimit}
+                  onChange={(e) => { dispatch({ type: "SET", key: "providerStickyLimit", value: e.target.value }); saveStrategy("round-robin", e.target.value); }}
+                  aria-label="Sticky session limit"
                   className="w-16 px-2 py-1 text-xs border border-border rounded-md bg-background focus:outline-none focus:border-primary"
                 />
               </div>
@@ -427,60 +454,60 @@ export default function ConnectionsCard({ providerId, isOAuth }) {
           </div>
         </div>
 
-        {connections.length === 0 ? (
+        {state.connections.length === 0 ? (
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm text-text-muted">No connections yet</p>
-            <Button size="sm" icon="add" onClick={() => setShowAddModal(true)}>Add Connection</Button>
+            <Button size="sm" icon="add" onClick={() => dispatch({ type: "SET", key: "showAddModal", value: true })}>Add Connection</Button>
           </div>
         ) : (
           <>
             <div className="flex flex-col divide-y divide-black/[0.03] dark:divide-white/[0.03]">
-              {connections.map((conn, idx) => (
+              {state.connections.map((conn, idx) => (
                 <ConnectionRow
                   key={conn.id}
                   connection={conn}
-                  proxyPools={proxyPools}
+                  proxyPools={state.proxyPools}
                   isOAuth={isOAuth}
                   isFirst={idx === 0}
-                  isLast={idx === connections.length - 1}
+                  isLast={idx === state.connections.length - 1}
                   onMoveUp={() => handleSwapPriority(idx, idx - 1)}
                   onMoveDown={() => handleSwapPriority(idx, idx + 1)}
                   onToggleActive={(isActive) => handleToggleActive(conn.id, isActive)}
                   onUpdateProxy={(poolId) => handleUpdateProxy(conn.id, poolId)}
-                  onEdit={() => { setSelectedConnection(conn); setShowEditModal(true); }}
+                  onEdit={() => { dispatch({ type: "SET", key: "selectedConnection", value: conn }); dispatch({ type: "SET", key: "showEditModal", value: true }); }}
                   onDelete={() => handleDelete(conn.id)}
                 />
               ))}
             </div>
             <div className="mt-4 flex justify-stretch sm:justify-start">
-              <Button size="sm" icon="add" onClick={() => setShowAddModal(true)}>Add</Button>
+              <Button size="sm" icon="add" onClick={() => dispatch({ type: "SET", key: "showAddModal", value: true })}>Add</Button>
             </div>
           </>
         )}
       </Card>
 
       <AddApiKeyModal
-        isOpen={showAddModal}
+        isOpen={state.showAddModal}
         provider={providerId}
-        proxyPools={proxyPools}
+        proxyPools={state.proxyPools}
         onSave={handleSaveApiKey}
-        onClose={() => setShowAddModal(false)}
+        onClose={() => dispatch({ type: "SET", key: "showAddModal", value: false })}
       />
       <EditConnectionModal
-        isOpen={showEditModal}
-        connection={selectedConnection}
-        proxyPools={proxyPools}
+        isOpen={state.showEditModal}
+        connection={state.selectedConnection}
+        proxyPools={state.proxyPools}
         onSave={handleUpdateConnection}
-        onClose={() => setShowEditModal(false)}
+        onClose={() => dispatch({ type: "SET", key: "showEditModal", value: false })}
       />
 
       {/* Confirm Modal */}
       <ConfirmModal
-        isOpen={!!confirmState}
-        onClose={() => setConfirmState(null)}
-        onConfirm={confirmState?.onConfirm}
-        title={confirmState?.title || "Confirm"}
-        message={confirmState?.message}
+        isOpen={!!state.confirmState}
+        onClose={() => dispatch({ type: "SET", key: "confirmState", value: null })}
+        onConfirm={state.confirmState?.onConfirm}
+        title={state.confirmState?.title || "Confirm"}
+        message={state.confirmState?.message}
         variant="danger"
       />
     </>

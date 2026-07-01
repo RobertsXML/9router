@@ -126,4 +126,4 @@ export class QwenExecutor extends DefaultExecutor {
   }
 }
 
-export default QwenExecutor;
+// ponytail: removed unused default export; add back if dynamic import pattern changes

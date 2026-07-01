@@ -377,7 +377,7 @@ amp --model "{{model}}"
 };
 
 // Get all provider models for mapping dropdown
-export const getProviderModelsForMapping = (providers) => {
+const getProviderModelsForMapping = (providers) => {
   const result = [];
   providers.forEach(conn => {
     if (conn.isActive && (conn.testStatus === "active" || conn.testStatus === "success")) {

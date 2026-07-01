@@ -15,12 +15,11 @@ function systemToText(system) {
   if (typeof system === "string") return system;
   if (Array.isArray(system)) {
     return system
-      .map((part) => {
-        if (typeof part === "string") return part;
-        if (typeof part?.text === "string") return part.text;
-        return "";
+      .flatMap((part) => {
+        if (typeof part === "string") return part ? [part] : [];
+        if (typeof part?.text === "string") return part.text ? [part.text] : [];
+        return [];
       })
-      .filter(Boolean)
       .join("\n");
   }
   return "";
@@ -100,4 +99,4 @@ export class KimchiExecutor extends DefaultExecutor {
   }
 }
 
-export default KimchiExecutor;
+// ponytail: removed unused default export; add back if dynamic import pattern changes

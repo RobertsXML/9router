@@ -8,15 +8,22 @@ import { FORMATS } from "../../open-sse/translator/formats.js";
 
 // Chuẩn hoá field động (Date.now trong created + id) để snapshot ổn định.
 function stripVolatile(chunks) {
-  return JSON.parse(JSON.stringify(chunks), (key, val) => {
-    if (key === "created") return 0;
-    if (key === "id" && typeof val === "string") {
-      return val
-        .replace(/-\d{10,}-(\d+)$/, "-<TS>-$1")   // gemini: name-<ts>-idx
-        .replace(/^chatcmpl-\d{10,}$/, "chatcmpl-<TS>")  // kiro/ollama stream id
-        .replace(/^call_(\d+)_\d{10,}$/, "call_$1_<TS>"); // ollama tool id
+  const clone = structuredClone(chunks);
+  return clone.map(function strip(obj) {
+    if (Array.isArray(obj)) return obj.map(strip);
+    if (obj && typeof obj === "object") {
+      for (const [k, v] of Object.entries(obj)) {
+        if (k === "created") { obj[k] = 0; }
+        else if (k === "id" && typeof v === "string") {
+          obj[k] = v
+            .replace(/-\d{10,}-(\d+)$/, "-<TS>-$1")   // gemini: name-<ts>-idx
+            .replace(/^chatcmpl-\d{10,}$/, "chatcmpl-<TS>")  // kiro/ollama stream id
+            .replace(/^call_(\d+)_\d{10,}$/, "call_$1_<TS>"); // ollama tool id
+        }
+        else if (v && typeof v === "object") { strip(v); }
+      }
     }
-    return val;
+    return obj;
   });
 }
 

@@ -70,9 +70,11 @@ export default function DashboardLayout({ children }) {
       </div>
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
-        <div
+        <button
+          type="button"
           className="fixed inset-0 z-40 bg-black/20 lg:hidden"
           onClick={() => setSidebarOpen(false)}
+          aria-label="Close sidebar"
         />
       )}
 

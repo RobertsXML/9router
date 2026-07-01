@@ -1,67 +1,61 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useReducer, useCallback } from "react";
 import { Card, Button, ModelSelectModal, ManualConfigModal } from "@/shared/components";
 import Image from "next/image";
 import BaseUrlSelect from "./BaseUrlSelect";
 import ApiKeySelect from "./ApiKeySelect";
 import { matchKnownEndpoint } from "./cliEndpointMatch";
 
+const initialState = {
+  status: null,
+  checking: false,
+  applying: false,
+  restoring: false,
+  message: null,
+  selectedApiKey: "",
+  customBaseUrl: "",
+  modelAliases: {},
+  showManualConfigModal: false,
+  selectedModels: [],
+  modalOpen: false,
+};
+
+const reducer = (state, action) => {
+  switch (action.type) {
+    case 'setStatus': return { ...state, status: action.value };
+    case 'setChecking': return { ...state, checking: action.value };
+    case 'setApplying': return { ...state, applying: action.value };
+    case 'setRestoring': return { ...state, restoring: action.value };
+    case 'setMessage': return { ...state, message: action.value };
+    case 'setSelectedApiKey': return { ...state, selectedApiKey: action.value };
+    case 'setCustomBaseUrl': return { ...state, customBaseUrl: action.value };
+    case 'setModelAliases': return { ...state, modelAliases: action.value };
+    case 'setShowManualConfigModal': return { ...state, showManualConfigModal: action.value };
+    case 'setSelectedModels': return { ...state, selectedModels: action.value };
+    case 'addModel': return { ...state, selectedModels: [...state.selectedModels, action.value] };
+    case 'removeModel': return { ...state, selectedModels: state.selectedModels.filter(m => m !== action.id) };
+    case 'setModalOpen': return { ...state, modalOpen: action.value };
+    case 'reset': return initialState;
+    default: return state;
+  }
+};
+
 export default function CopilotToolCard({ tool, isExpanded, onToggle, baseUrl, apiKeys, activeProviders, cloudEnabled, initialStatus, tunnelEnabled, tunnelPublicUrl, tailscaleEnabled, tailscaleUrl }) {
-  const [status, setStatus] = useState(initialStatus || null);
-  const [checking, setChecking] = useState(false);
-  const [applying, setApplying] = useState(false);
-  const [restoring, setRestoring] = useState(false);
-  const [message, setMessage] = useState(null);
-  const [selectedApiKey, setSelectedApiKey] = useState("");
-  const [customBaseUrl, setCustomBaseUrl] = useState("");
-  const [modelAliases, setModelAliases] = useState({});
-  const [showManualConfigModal, setShowManualConfigModal] = useState(false);
-  const [selectedModels, setSelectedModels] = useState([]);
-  const [modalOpen, setModalOpen] = useState(false);
-  const selectedModelsRef = useRef([]);
+  const [{ status, checking, applying, restoring, message, selectedApiKey, customBaseUrl, modelAliases, showManualConfigModal, selectedModels, modalOpen }, dispatch] = useReducer(reducer, initialStatus, (init) => ({
+    ...initialState,
+    status: init || null,
+  }));
 
-  useEffect(() => {
-    selectedModelsRef.current = selectedModels;
-  }, [selectedModels]);
-
-  useEffect(() => {
-    if (apiKeys?.length > 0 && !selectedApiKey) {
-      setSelectedApiKey(apiKeys[0].key);
-    }
-  }, [apiKeys, selectedApiKey]);
-
-  useEffect(() => {
-    if (initialStatus) setStatus(initialStatus);
-  }, [initialStatus]);
-
-  useEffect(() => {
-    if (isExpanded && !status) {
-      checkStatus();
-      fetchModelAliases();
-    }
-    if (isExpanded) fetchModelAliases();
-  }, [isExpanded]);
-
-  // Pre-fill from existing config
-  useEffect(() => {
-    if (status?.config && Array.isArray(status.config) && selectedModels.length === 0) {
-      const entry = status.config.find((e) => e.name === "9Router");
-      if (entry?.models?.length > 0) {
-        setSelectedModels(entry.models.map((m) => m.id));
-      }
-    }
-  }, [status]);
-
-  const fetchModelAliases = async () => {
+  const fetchModelAliases = useCallback(async () => {
     try {
       const res = await fetch("/api/models/alias");
       const data = await res.json();
-      if (res.ok) setModelAliases(data.aliases || {});
+      if (res.ok) dispatch({ type: 'setModelAliases', value: data.aliases || {} });
     } catch (error) {
       console.log("Error fetching model aliases:", error);
     }
-  };
+  }, []);
 
   const saveModels = async (models) => {
     try {
@@ -94,24 +88,39 @@ export default function CopilotToolCard({ tool, isExpanded, onToggle, baseUrl, a
 
   const getDisplayUrl = () => customBaseUrl || `${baseUrl}/v1`;
 
-  const removeModel = (id) => setSelectedModels((prev) => prev.filter((m) => m !== id));
+  const removeModel = (id) => dispatch({ type: 'removeModel', id });
 
-  const checkStatus = async () => {
-    setChecking(true);
+  const checkStatus = useCallback(async () => {
+    dispatch({ type: 'setChecking', value: true });
     try {
       const res = await fetch("/api/cli-tools/copilot-settings");
       const data = await res.json();
-      setStatus(data);
+      dispatch({ type: 'setStatus', value: data });
+      // Move derived state logic here (Pattern D)
+      if (data?.config && Array.isArray(data.config) && selectedModels.length === 0) {
+        const entry = data.config.find((e) => e.name === "9Router");
+        if (entry?.models?.length > 0) {
+          dispatch({ type: 'setSelectedModels', value: entry.models.map((m) => m.id) });
+        }
+      }
     } catch (error) {
-      setStatus({ error: error.message });
+      dispatch({ type: 'setStatus', value: { error: error.message } });
     } finally {
-      setChecking(false);
+      dispatch({ type: 'setChecking', value: false });
     }
-  };
+  }, [selectedModels]);
+
+  const handleToggle = useCallback(() => {
+    if (!isExpanded) {
+      if (!status) checkStatus();
+      fetchModelAliases();
+    }
+    onToggle();
+  }, [isExpanded, onToggle, status, checkStatus, fetchModelAliases]);
 
   const handleApply = async () => {
-    setApplying(true);
-    setMessage(null);
+    dispatch({ type: 'setApplying', value: true });
+    dispatch({ type: 'setMessage', value: null });
     try {
       const keyToUse = (selectedApiKey && selectedApiKey.trim())
         ? selectedApiKey
@@ -124,35 +133,35 @@ export default function CopilotToolCard({ tool, isExpanded, onToggle, baseUrl, a
       });
       const data = await res.json();
       if (res.ok) {
-        setMessage({ type: "success", text: data.message || "Settings applied! Reload VS Code." });
+        dispatch({ type: 'setMessage', value: { type: "success", text: data.message || "Settings applied! Reload VS Code." } });
         checkStatus();
       } else {
-        setMessage({ type: "error", text: data.error || "Failed to apply settings" });
+        dispatch({ type: 'setMessage', value: { type: "error", text: data.error || "Failed to apply settings" } });
       }
     } catch (error) {
-      setMessage({ type: "error", text: error.message });
+      dispatch({ type: 'setMessage', value: { type: "error", text: error.message } });
     } finally {
-      setApplying(false);
+      dispatch({ type: 'setApplying', value: false });
     }
   };
 
   const handleReset = async () => {
-    setRestoring(true);
-    setMessage(null);
+    dispatch({ type: 'setRestoring', value: true });
+    dispatch({ type: 'setMessage', value: null });
     try {
       const res = await fetch("/api/cli-tools/copilot-settings", { method: "DELETE" });
       const data = await res.json();
       if (res.ok) {
-        setMessage({ type: "success", text: "Settings reset successfully!" });
-        setSelectedModels([]);
+        dispatch({ type: 'setMessage', value: { type: "success", text: "Settings reset successfully!" } });
+        dispatch({ type: 'setSelectedModels', value: [] });
         checkStatus();
       } else {
-        setMessage({ type: "error", text: data.error || "Failed to reset settings" });
+        dispatch({ type: 'setMessage', value: { type: "error", text: data.error || "Failed to reset settings" } });
       }
     } catch (error) {
-      setMessage({ type: "error", text: error.message });
+      dispatch({ type: 'setMessage', value: { type: "error", text: error.message } });
     } finally {
-      setRestoring(false);
+      dispatch({ type: 'setRestoring', value: false });
     }
   };
 
@@ -181,7 +190,7 @@ export default function CopilotToolCard({ tool, isExpanded, onToggle, baseUrl, a
 
   return (
     <Card padding="xs" className="overflow-hidden">
-      <div className="flex items-start justify-between gap-3 hover:cursor-pointer sm:items-center" onClick={onToggle}>
+      <button type="button" className="flex w-full items-start justify-between gap-3 hover:cursor-pointer sm:items-center" onClick={handleToggle}>
         <div className="flex min-w-0 items-center gap-3">
           <div className="size-8 flex items-center justify-center shrink-0">
             <Image src="/providers/copilot.png" alt={tool.name} width={32} height={32} className="size-8 object-contain rounded-lg" sizes="32px" onError={(e) => { e.target.style.display = "none"; }} />
@@ -197,7 +206,7 @@ export default function CopilotToolCard({ tool, isExpanded, onToggle, baseUrl, a
           </div>
         </div>
         <span className={`material-symbols-outlined text-text-muted text-[20px] transition-transform ${isExpanded ? "rotate-180" : ""}`}>expand_more</span>
-      </div>
+      </button>
 
       {isExpanded && (
         <div className="mt-4 pt-4 border-t border-border flex flex-col gap-4">
@@ -225,7 +234,7 @@ export default function CopilotToolCard({ tool, isExpanded, onToggle, baseUrl, a
                   <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
                   <BaseUrlSelect
                     value={customBaseUrl || getDisplayUrl()}
-                    onChange={setCustomBaseUrl}
+                    onChange={(v) => dispatch({ type: 'setCustomBaseUrl', value: v })}
                     requiresExternalUrl={tool.requiresExternalUrl}
                     tunnelEnabled={tunnelEnabled}
                     tunnelPublicUrl={tunnelPublicUrl}
@@ -238,7 +247,7 @@ export default function CopilotToolCard({ tool, isExpanded, onToggle, baseUrl, a
                 <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr_auto] sm:items-center sm:gap-2">
                   <span className="text-xs font-semibold text-text-main sm:text-right sm:text-sm">API Key</span>
                   <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
-                  <ApiKeySelect value={selectedApiKey} onChange={setSelectedApiKey} apiKeys={apiKeys} cloudEnabled={cloudEnabled} />
+                  <ApiKeySelect value={selectedApiKey} onChange={(v) => dispatch({ type: 'setSelectedApiKey', value: v })} apiKeys={apiKeys} cloudEnabled={cloudEnabled} />
                 </div>
 
                 {/* Models */}
@@ -253,7 +262,7 @@ export default function CopilotToolCard({ tool, isExpanded, onToggle, baseUrl, a
                         selectedModels.map((model) => (
                           <span key={model} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-black/5 dark:bg-white/5 text-text-muted border border-transparent hover:border-border">
                             {model}
-                            <button onClick={(e) => { e.stopPropagation(); removeModel(model); }} className="ml-0.5 hover:text-red-500">
+                            <button type="button" onClick={(e) => { e.stopPropagation(); removeModel(model); }} className="ml-0.5 hover:text-red-500">
                               <span className="material-symbols-outlined text-[12px]">close</span>
                             </button>
                           </span>
@@ -261,7 +270,7 @@ export default function CopilotToolCard({ tool, isExpanded, onToggle, baseUrl, a
                       )}
                     </div>
                     <div>
-                      <button onClick={() => setModalOpen(true)} disabled={!activeProviders?.length} className={`px-2 py-1 rounded border text-xs transition-colors ${activeProviders?.length ? "bg-surface border-border text-text-main hover:border-primary cursor-pointer" : "opacity-50 cursor-not-allowed border-border"}`}>Add Model</button>
+                      <button type="button" onClick={() => dispatch({ type: 'setModalOpen', value: true })} disabled={!activeProviders?.length} className={`px-2 py-1 rounded border text-xs transition-colors ${activeProviders?.length ? "bg-surface border-border text-text-main hover:border-primary cursor-pointer" : "opacity-50 cursor-not-allowed border-border"}`}>Add Model</button>
                     </div>
                   </div>
                 </div>
@@ -281,7 +290,7 @@ export default function CopilotToolCard({ tool, isExpanded, onToggle, baseUrl, a
                 <Button variant="outline" size="sm" onClick={handleReset} disabled={!status?.has9Router} loading={restoring}>
                   <span className="material-symbols-outlined text-[14px] mr-1">restore</span>Reset
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => setShowManualConfigModal(true)} disabled={selectedModels.length === 0}>
+                <Button variant="ghost" size="sm" onClick={() => dispatch({ type: 'setShowManualConfigModal', value: true })} disabled={selectedModels.length === 0}>
                   <span className="material-symbols-outlined text-[14px] mr-1">content_copy</span>Manual Config
                 </Button>
               </div>
@@ -293,16 +302,16 @@ export default function CopilotToolCard({ tool, isExpanded, onToggle, baseUrl, a
       <ModelSelectModal
         isOpen={modalOpen}
         onClose={() => {
-          setModalOpen(false);
-          saveModels(selectedModelsRef.current);
+          dispatch({ type: 'setModalOpen', value: false });
+          saveModels(selectedModels);
         }}
         onSelect={(model) => {
           if (!selectedModels.includes(model.value)) {
-            setSelectedModels([...selectedModels, model.value]);
+            dispatch({ type: 'addModel', value: model.value });
           }
         }}
         onDeselect={(model) => {
-          setSelectedModels(selectedModels.filter(m => m !== model.value));
+          dispatch({ type: 'removeModel', id: model.value });
         }}
         selectedModel={null}
         activeProviders={activeProviders}
@@ -314,7 +323,7 @@ export default function CopilotToolCard({ tool, isExpanded, onToggle, baseUrl, a
 
       <ManualConfigModal
         isOpen={showManualConfigModal}
-        onClose={() => setShowManualConfigModal(false)}
+        onClose={() => dispatch({ type: 'setShowManualConfigModal', value: false })}
         title="GitHub Copilot - Manual Configuration"
         configs={getManualConfigs()}
       />

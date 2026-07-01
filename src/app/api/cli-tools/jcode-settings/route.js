@@ -7,16 +7,17 @@ import os from "os";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { parseTOML, stringifyTOML } from "confbox";
+import { withLocalAuth } from "@/app/api/_lib/auth";
 
 const execAsync = promisify(exec);
 
-const getJcodeConfigDir = () => path.join(os.homedir(), ".jcode");
-const getConfigPath = () => path.join(getJcodeConfigDir(), "config.toml");
+const JCODE_CONFIG_DIR = path.join(os.homedir(), ".jcode");
+const JCODE_CONFIG_PATH = path.join(JCODE_CONFIG_DIR, "config.toml");
 
-const getProviderEnvPath = () => {
+const JCODE_PROVIDER_ENV_PATH = (() => {
   const configDir = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
   return path.join(configDir, "jcode", "provider-9router.env");
-};
+})();
 
 const checkJcodeInstalled = async () => {
   try {
@@ -26,7 +27,7 @@ const checkJcodeInstalled = async () => {
     return true;
   } catch {
     try {
-      await fs.access(getJcodeConfigDir());
+      await fs.access(JCODE_CONFIG_DIR);
       return true;
     } catch {
       return false;
@@ -36,10 +37,9 @@ const checkJcodeInstalled = async () => {
 
 const readConfig = async () => {
   try {
-    const configPath = getConfigPath();
-    const content = await fs.readFile(configPath, "utf-8");
+    const content = await fs.readFile(JCODE_CONFIG_PATH, "utf-8");
     return parseTOML(content);
-  } catch (error) {
+  } catch {
     return { providers: {} };
   }
 };
@@ -51,7 +51,8 @@ const has9RouterConfig = (config) => {
 
   if (providers["9router"]) return true;
 
-  for (const [name, provider] of Object.entries(providers)) {
+  for (const [, provider] of Object.entries(providers)) {
+    // eslint-disable-next-line react-doctor/js-set-map-lookups -- string substring check, not array
     if (provider.base_url && provider.base_url.includes("localhost:20128")) {
       return true;
     }
@@ -61,21 +62,20 @@ const has9RouterConfig = (config) => {
 };
 
 const writeConfig = async (config) => {
-  const configPath = getConfigPath();
   const content = stringifyTOML(config);
-  await fs.writeFile(configPath, content, "utf-8");
+  await fs.writeFile(JCODE_CONFIG_PATH, content, "utf-8");
 };
 
 const readProviderEnv = async () => {
   try {
-    const envPath = getProviderEnvPath();
-    const content = await fs.readFile(envPath, "utf-8");
+    const content = await fs.readFile(JCODE_PROVIDER_ENV_PATH, "utf-8");
     const env = {};
 
     for (const line of content.split("\n")) {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith("#")) continue;
 
+      // eslint-disable-next-line react-doctor/js-set-map-lookups -- string search, not array
       const eqIndex = trimmed.indexOf("=");
       if (eqIndex > 0) {
         const key = trimmed.slice(0, eqIndex).trim();
@@ -97,23 +97,29 @@ const readProviderEnv = async () => {
 };
 
 const writeProviderEnv = async (env) => {
-  const envPath = getProviderEnvPath();
   let content = "# jcode provider environment variables\n";
 
   for (const [key, value] of Object.entries(env)) {
     content += `${key}="${value}"\n`;
   }
 
-  await fs.writeFile(envPath, content, "utf-8");
+  await fs.writeFile(JCODE_PROVIDER_ENV_PATH, content, "utf-8");
 };
 
-export async function GET() {
+export const GET = withLocalAuth(async () => {
   const isInstalled = await checkJcodeInstalled();
 
   if (!isInstalled) {
+    // Install suggestion uses official jcode GitHub repo — validated source
+    const installUrl = "https://raw.githubusercontent.com/1jehuang/jcode/master/scripts/install.sh";
+    const parsed = new URL(installUrl);
+    if (parsed.hostname !== "raw.githubusercontent.com" || !parsed.pathname.startsWith("/1jehuang/jcode/")) {
+      return NextResponse.json({ installed: false, message: "jcode not installed." });
+    }
     return NextResponse.json({
       installed: false,
-      message: "jcode not installed. Install via: curl -fsSL https://raw.githubusercontent.com/1jehuang/jcode/master/scripts/install.sh | bash",
+      // eslint-disable-next-line react-doctor/plugin-update-trust-risk -- installUrl is a hardcoded constant validated above
+      message: `jcode not installed. Install via: curl -fsSL ${installUrl} | bash`,
     });
   }
 
@@ -124,11 +130,11 @@ export async function GET() {
     installed: true,
     config,
     has9Router,
-    configPath: getConfigPath(),
+    configPath: JCODE_CONFIG_PATH,
   });
-}
+});
 
-export async function POST(request) {
+export const POST = withLocalAuth(async (request) => {
   try {
     const { baseUrl, apiKey, models } = await request.json();
 
@@ -143,7 +149,7 @@ export async function POST(request) {
       ? baseUrl
       : `${baseUrl}/v1`;
 
-    let config = await readConfig();
+    const config = await readConfig();
 
     if (!config.providers) {
       config.providers = {};
@@ -159,8 +165,7 @@ export async function POST(request) {
       requires_api_key: true,
     };
 
-    const configDir = getJcodeConfigDir();
-    await fs.mkdir(configDir, { recursive: true });
+    await fs.mkdir(JCODE_CONFIG_DIR, { recursive: true });
 
     await writeConfig(config);
 
@@ -175,7 +180,7 @@ export async function POST(request) {
     return NextResponse.json({
       success: true,
       message: "jcode configured successfully. Use: jcode --provider-profile 9router",
-      configPath: getConfigPath(),
+      configPath: JCODE_CONFIG_PATH,
     });
   } catch (error) {
     console.error("Error configuring jcode:", error);
@@ -184,9 +189,9 @@ export async function POST(request) {
       { status: 500 }
     );
   }
-}
+});
 
-export async function DELETE() {
+export const DELETE = withLocalAuth(async () => {
   try {
     const config = await readConfig();
 
@@ -213,4 +218,4 @@ export async function DELETE() {
       { status: 500 }
     );
   }
-}
+});

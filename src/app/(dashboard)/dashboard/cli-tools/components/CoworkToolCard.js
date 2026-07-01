@@ -246,7 +246,7 @@ export default function CoworkToolCard({
 
   return (
     <Card padding="xs" className="overflow-hidden">
-      <div className="flex items-start justify-between gap-3 hover:cursor-pointer sm:items-center" onClick={onToggle}>
+      <button type="button" className="flex w-full items-start justify-between gap-3 hover:cursor-pointer sm:items-center" onClick={onToggle}>
         <div className="flex min-w-0 items-center gap-3">
           <div className="size-8 flex items-center justify-center shrink-0">
             <Image src={tool.image} alt={tool.name} width={32} height={32} className="size-8 object-contain rounded-lg" sizes="32px" onError={(e) => { e.target.style.display = "none"; }} />
@@ -262,7 +262,7 @@ export default function CoworkToolCard({
           </div>
         </div>
         <span className={`material-symbols-outlined text-text-muted text-[20px] transition-transform ${isExpanded ? "rotate-180" : ""}`}>expand_more</span>
-      </div>
+      </button>
 
       {isExpanded && (
         <div className="mt-4 pt-4 border-t border-border flex flex-col gap-4">
@@ -336,14 +336,14 @@ export default function CoworkToolCard({
                         selectedModels.map((m) => (
                           <span key={m} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-black/5 dark:bg-white/5 text-text-muted border border-transparent hover:border-border">
                             {m}
-                            <button onClick={() => handleRemoveModel(m)} className="ml-0.5 hover:text-red-500">
+                            <button type="button" onClick={() => handleRemoveModel(m)} className="ml-0.5 hover:text-red-500">
                               <span className="material-symbols-outlined text-[12px]">close</span>
                             </button>
                           </span>
                         ))
                       )}
                     </div>
-                    <button onClick={() => setComboModalOpen(true)} disabled={!hasActiveProviders} className={`shrink-0 px-2 py-1.5 rounded border text-xs whitespace-nowrap transition-colors ${hasActiveProviders ? "bg-primary/10 border-primary/40 text-primary hover:bg-primary/20 cursor-pointer" : "opacity-50 cursor-not-allowed border-border"}`}>+ Combo</button>
+                    <button type="button" onClick={() => setComboModalOpen(true)} disabled={!hasActiveProviders} className={`shrink-0 px-2 py-1.5 rounded border text-xs whitespace-nowrap transition-colors ${hasActiveProviders ? "bg-primary/10 border-primary/40 text-primary hover:bg-primary/20 cursor-pointer" : "opacity-50 cursor-not-allowed border-border"}`}>+ Combo</button>
                   </div>
                 </div>
 
@@ -352,7 +352,7 @@ export default function CoworkToolCard({
                   <span className="material-symbols-outlined text-text-muted text-[14px] mt-2">arrow_forward</span>
                   <div className="flex-1 flex flex-col gap-1">
                     {/* Preset plugins */}
-                    {plugins.filter((p) => p.name !== "exa").map((p) => (
+                    {plugins.flatMap((p) => p.name === "exa" ? [] : [
                       <div key={p.name} className="flex items-center gap-2 px-2 py-1 bg-surface rounded border border-border">
                         <span className="text-xs font-medium min-w-0 truncate flex-shrink-0">{p.title || p.name}</span>
                         {p.oauth && <span className="text-[8px] text-amber-600 shrink-0">OAuth</span>}
@@ -364,18 +364,18 @@ export default function CoworkToolCard({
                             <span className="text-[9px] px-1 py-0.5 rounded bg-black/5 dark:bg-white/5 text-text-muted whitespace-nowrap">+{p.toolNames.length - 6}</span>
                           )}
                         </div>
-                        <button onClick={() => removePlugin(p.name)} className="shrink-0 hover:text-red-500 ml-auto">
+                        <button type="button" onClick={() => removePlugin(p.name)} className="shrink-0 hover:text-red-500 ml-auto">
                           <span className="material-symbols-outlined text-[12px]">close</span>
                         </button>
                       </div>
-                    ))}
+                    ])}
                     {/* Custom plugins */}
                     {customPlugins.map((p) => (
                       <div key={p.name} className="flex items-center gap-2 px-2 py-1 bg-surface rounded border border-border">
                         <span className="text-xs font-medium min-w-0 truncate flex-shrink-0">{p.name}</span>
                         <span className="text-[8px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-500 shrink-0">custom</span>
                         <span className="flex-1 text-[9px] text-text-muted truncate">{p.url}</span>
-                        <button onClick={() => setCustomPlugins(customPlugins.filter((x) => x.name !== p.name))} className="shrink-0 hover:text-red-500 ml-auto">
+                        <button type="button" onClick={() => setCustomPlugins(customPlugins.filter((x) => x.name !== p.name))} className="shrink-0 hover:text-red-500 ml-auto">
                           <span className="material-symbols-outlined text-[12px]">close</span>
                         </button>
                       </div>
@@ -385,10 +385,10 @@ export default function CoworkToolCard({
                     )}
                     {/* Actions row */}
                     <div className="flex items-center gap-2 mt-0.5">
-                      <button onClick={() => setMarketplaceOpen(true)} className="px-2 py-1 rounded border text-xs bg-primary/10 border-primary/40 text-primary hover:bg-primary/20 cursor-pointer whitespace-nowrap">
+                      <button type="button" onClick={() => setMarketplaceOpen(true)} className="px-2 py-1 rounded border text-xs bg-primary/10 border-primary/40 text-primary hover:bg-primary/20 cursor-pointer whitespace-nowrap">
                         + Browse
                       </button>
-                      <button onClick={() => { setAddMcpForm({ name: "", url: "" }); setAddMcpOpen(true); }} className="px-2 py-1 rounded border text-xs bg-surface border-border text-text-muted hover:border-primary hover:text-primary cursor-pointer whitespace-nowrap">
+                      <button type="button" onClick={() => { setAddMcpForm({ name: "", url: "" }); setAddMcpOpen(true); }} className="px-2 py-1 rounded border text-xs bg-surface border-border text-text-muted hover:border-primary hover:text-primary cursor-pointer whitespace-nowrap">
                         + Custom
                       </button>
                       <a href="https://mcp.so" target="_blank" rel="noopener noreferrer" className="text-[10px] text-text-muted hover:text-primary underline ml-auto">Find MCPs →</a>
@@ -452,10 +452,11 @@ export default function CoworkToolCard({
                     <span className="material-symbols-outlined text-text-muted text-[14px] mt-1.5">arrow_forward</span>
                     <div className="flex-1 flex flex-col gap-2">
                       <div className="flex flex-col gap-1.5 px-2 py-1.5 bg-surface rounded border border-border">
-                        {status.localStdioPlugins.filter((p) => p.name !== "browsermcp").map((p) => {
+                        {status.localStdioPlugins.flatMap((p) => {
+                          if (p.name === "browsermcp") return [];
                           const enabled = localPlugins.includes(p.name);
                           return (
-                            <label key={p.name} className="flex items-start gap-2 cursor-pointer">
+                            [<label key={p.name} className="flex items-start gap-2 cursor-pointer">
                               <input
                                 type="checkbox"
                                 checked={enabled}
@@ -473,7 +474,7 @@ export default function CoworkToolCard({
                                 )}
                               </div>
                             </label>
-                          );
+                          ]);
                         })}
                       </div>
                       <p className="text-[10px] text-text-muted leading-snug">
@@ -545,11 +546,11 @@ export default function CoworkToolCard({
 
       {/* Add Custom MCP modal */}
       {addMcpOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setAddMcpOpen(false)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setAddMcpOpen(false)} onKeyDown={(e) => { if (e.key === "Escape") setAddMcpOpen(false); }} role="button" tabIndex={0}>
           <div className="bg-surface border border-border rounded-xl shadow-xl w-full max-w-sm mx-4 p-5 flex flex-col gap-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h3 className="font-semibold text-sm">Add Custom MCP</h3>
-              <button onClick={() => setAddMcpOpen(false)} className="text-text-muted hover:text-text-main">
+              <button type="button" onClick={() => setAddMcpOpen(false)} className="text-text-muted hover:text-text-main">
                 <span className="material-symbols-outlined text-[18px]">close</span>
               </button>
             </div>
@@ -578,8 +579,9 @@ export default function CoworkToolCard({
             </div>
 
             <div className="flex gap-2 justify-end">
-              <button onClick={() => setAddMcpOpen(false)} className="px-3 py-1.5 rounded border border-border text-xs text-text-muted hover:bg-surface cursor-pointer">Cancel</button>
+              <button type="button" onClick={() => setAddMcpOpen(false)} className="px-3 py-1.5 rounded border border-border text-xs text-text-muted hover:bg-surface cursor-pointer">Cancel</button>
               <button
+                type="button"
                 onClick={() => {
                   const name = addMcpForm.name.trim();
                   if (!name || !addMcpForm.url.trim()) return;

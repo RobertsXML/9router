@@ -178,6 +178,17 @@ const getPageInfo = (pathname) => {
   return { title: "", description: "", breadcrumbs: [] };
 };
 
+async function handleLogout() {
+  try {
+    const res = await fetch("/api/auth/logout", { method: "POST" });
+    if (res.ok) {
+      window.location.assign("/login");
+    }
+  } catch (err) {
+    console.error("Failed to logout:", err);
+  }
+}
+
 export default function Header({ onMenuClick, showMenuButton = true }) {
   const pathname = usePathname();
   const [displayName, setDisplayName] = useState("");
@@ -189,19 +200,19 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
   const { title, description, icon, breadcrumbs } = pageInfo;
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
 
     async function loadAuthStatus() {
       try {
-        const res = await fetch("/api/auth/status", { cache: "no-store" });
+        const res = await fetch("/api/auth/status", { cache: "no-store", signal: controller.signal });
         if (!res.ok) return;
         const data = await res.json();
-        if (!cancelled) {
+        if (!controller.signal.aborted) {
           setDisplayName(data?.displayName || data?.oidcName || data?.oidcEmail || "");
           setLoginMethod(data?.loginMethod || "");
         }
-      } catch {
-        if (!cancelled) {
+      } catch (err) {
+        if (!controller.signal.aborted) {
           setDisplayName("");
           setLoginMethod("");
         }
@@ -210,20 +221,9 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
 
     loadAuthStatus();
     return () => {
-      cancelled = true;
+      controller.abort();
     };
   }, []);
-
-  const handleLogout = async () => {
-    try {
-      const res = await fetch("/api/auth/logout", { method: "POST" });
-      if (res.ok) {
-        window.location.assign("/login");
-      }
-    } catch (err) {
-      console.error("Failed to logout:", err);
-    }
-  };
 
   return (
     <header className="shrink-0 flex items-center justify-between gap-3 px-4 lg:px-8 pt-3 pb-2 border-b border-border-subtle bg-surface/60 backdrop-blur-xl lg:bg-transparent lg:backdrop-blur-none z-20">
@@ -231,6 +231,7 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
       <div className="flex items-center gap-3 lg:hidden shrink-0">
         {showMenuButton && (
           <button
+            type="button"
             onClick={onMenuClick}
             className="text-text-main hover:text-primary transition-colors"
           >
@@ -313,6 +314,7 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
         )}
         <HeaderSearch />
         <button
+          type="button"
           onClick={() => setDonateOpen(true)}
           className="flex items-center gap-1.5 px-3 h-8 rounded-lg border border-pink-500/30 bg-pink-500/10 text-pink-600 dark:text-pink-400 hover:bg-pink-500/20 transition-colors text-sm font-medium"
           aria-label="Donate"
@@ -347,6 +349,7 @@ function HeaderSearch() {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder={placeholder}
+        aria-label={placeholder || "Search"}
         className="w-full h-8 pl-7 pr-7 rounded-lg border border-border bg-surface/60 text-sm focus:outline-none focus:border-primary/50 transition-colors"
       />
       {query && (

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import PropTypes from "prop-types";
 import { Button, Modal } from "@/shared/components";
 
@@ -9,11 +9,6 @@ export default function AddCustomModelModal({ isOpen, providerAlias, providerDis
   const [testStatus, setTestStatus] = useState(null); // null | "testing" | "ok" | "error"
   const [testError, setTestError] = useState("");
   const [saving, setSaving] = useState(false);
-
-  // Reset state when modal opens
-  useEffect(() => {
-    if (isOpen) { setModelId(""); setTestStatus(null); setTestError(""); }
-  }, [isOpen]);
 
   // Strip provider's own alias prefix (e.g. "cc/model" -> "model" for cc provider)
   const stripAlias = (id) => {
@@ -52,24 +47,31 @@ export default function AddCustomModelModal({ isOpen, providerAlias, providerDis
     }
   };
 
+  const handleClose = () => {
+    setModelId("");
+    setTestStatus(null);
+    setTestError("");
+    onClose();
+  };
+
   const handleKeyDown = (e) => {
     if (e.key === "Enter") handleTest();
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Add Custom Model">
+    <Modal isOpen={isOpen} onClose={handleClose} title="Add Custom Model">
       <div className="flex flex-col gap-4">
         <div>
-          <label className="text-sm font-medium mb-1.5 block">Model ID</label>
+          <label htmlFor="custom-model-id" className="text-sm font-medium mb-1.5 block">Model ID</label>
           <div className="flex gap-2">
             <input
+              id="custom-model-id"
               type="text"
               value={modelId}
               onChange={(e) => { setModelId(e.target.value); setTestStatus(null); setTestError(""); }}
               onKeyDown={handleKeyDown}
               placeholder="e.g. claude-opus-4-5"
               className="flex-1 px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"
-              autoFocus
             />
             <Button
               variant="secondary"
@@ -101,7 +103,7 @@ export default function AddCustomModelModal({ isOpen, providerAlias, providerDis
         )}
 
         <div className="flex gap-2 pt-1">
-          <Button onClick={onClose} variant="ghost" fullWidth size="sm">Cancel</Button>
+          <Button onClick={handleClose} variant="ghost" fullWidth size="sm">Cancel</Button>
           <Button
             onClick={handleSave}
             fullWidth

@@ -11,4 +11,4 @@ export class OllamaLocalExecutor extends DefaultExecutor {
   }
 }
 
-export default OllamaLocalExecutor;
+// ponytail: removed unused default export; add back if dynamic import pattern changes

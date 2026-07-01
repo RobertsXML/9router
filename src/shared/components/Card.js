@@ -2,6 +2,14 @@
 
 import { cn } from "@/shared/utils/cn";
 
+const paddings = {
+  none: "",
+  xs: "p-3",
+  sm: "p-4",
+  md: "p-6",
+  lg: "p-8",
+};
+
 export default function Card({
   children,
   title,
@@ -14,14 +22,6 @@ export default function Card({
   className,
   ...props
 }) {
-  const paddings = {
-    none: "",
-    xs: "p-3",
-    sm: "p-4",
-    md: "p-6",
-    lg: "p-8",
-  };
-
   return (
     <div
       className={cn(

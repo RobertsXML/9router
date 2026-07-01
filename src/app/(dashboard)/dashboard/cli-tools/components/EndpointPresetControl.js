@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 const STORAGE_KEY = "9router.cliToolEndpointPresets";
 
@@ -35,12 +35,8 @@ export default function EndpointPresetControl({
   onBaseUrlChange,
   onApiKeyChange,
 }) {
-  const [presets, setPresets] = useState([]);
+  const [presets, setPresets] = useState(readPresets);
   const [selectedName, setSelectedName] = useState("");
-
-  useEffect(() => {
-    setPresets(readPresets());
-  }, []);
 
   const selectedPreset = useMemo(
     () => presets.find((preset) => preset.name === selectedName) || null,
@@ -73,7 +69,7 @@ export default function EndpointPresetControl({
     const nextPresets = [
       ...presets.filter((preset) => preset.name !== nextPreset.name),
       nextPreset,
-    ].sort((a, b) => a.name.localeCompare(b.name));
+    ].toSorted((a, b) => a.name.localeCompare(b.name));
 
     setPresets(nextPresets);
     setSelectedName(nextPreset.name);
@@ -95,6 +91,7 @@ export default function EndpointPresetControl({
       <select
         value={selectedName}
         onChange={(event) => handleSelect(event.target.value)}
+        aria-label="Endpoint preset selection"
         className="flex-1 px-2 py-1.5 bg-surface rounded text-xs border border-border focus:outline-none focus:ring-1 focus:ring-primary/50"
       >
         <option value="">Manual / current endpoint</option>

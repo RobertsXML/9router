@@ -29,7 +29,7 @@ export function getConnectionLabel(connection) {
     || null;
 }
 
-export function getConnectionQuotaRemaining(connection, quotaData) {
+function getConnectionQuotaRemaining(connection, quotaData) {
   const quota = quotaData[connection.id]?.quotas?.[0];
   if (!quota) return Number.POSITIVE_INFINITY;
   if (typeof quota.remaining === "number") return quota.remaining;
@@ -44,7 +44,7 @@ export function sortVisibleConnections(
   quotaSortMode,
 ) {
   if (providerFilter === "codex" && quotaSortMode !== "default") {
-    return [...connections].sort((a, b) => {
+    return connections.toSorted((a, b) => {
       const remainingA = getConnectionQuotaRemaining(a, quotaData);
       const remainingB = getConnectionQuotaRemaining(b, quotaData);
       const remainingDiff =
@@ -61,19 +61,16 @@ export function sortVisibleConnections(
   if (!expiringFirst) return connections;
 
   const getEarliestResetTime = (connection) => {
-    const resetTimes = (quotaData[connection.id]?.quotas || [])
-      .map((quota) =>
-        quota.resetAt
-          ? new Date(quota.resetAt).getTime()
-          : Number.POSITIVE_INFINITY,
-      )
-      .filter((time) => Number.isFinite(time));
+    const resetTimes = [];
+    for (const quota of (quotaData[connection.id]?.quotas || [])) {
+      if (quota.resetAt) { const t = new Date(quota.resetAt).getTime(); if (Number.isFinite(t)) resetTimes.push(t); }
+    }
     return resetTimes.length > 0
       ? Math.min(...resetTimes)
       : Number.POSITIVE_INFINITY;
   };
 
-  return [...connections].sort((a, b) => {
+  return connections.toSorted((a, b) => {
     const expiryDiff = getEarliestResetTime(a) - getEarliestResetTime(b);
     if (expiryDiff !== 0) return expiryDiff;
     return (
@@ -98,7 +95,7 @@ export function filterQuotaStateByConnections(state, connections) {
   );
 }
 
-export function getConnectionsPageRange(pagination) {
+function getConnectionsPageRange(pagination) {
   if (!pagination.total) {
     return { start: 0, end: 0 };
   }
@@ -134,7 +131,7 @@ export function getConnectionsEmptyMessage(totals, providerFilter, accountFilter
   };
 }
 
-export function sortRequestFromExpiringFirst(expiringFirst) {
+function sortRequestFromExpiringFirst(expiringFirst) {
   return expiringFirst ? "expiring" : "priority";
 }
 
@@ -165,10 +162,6 @@ export function getSafeTotals(totals, fallbackTotal = 0) {
       providerFilteredConnections: fallbackTotal,
     }
   );
-}
-
-export function shouldResetPage(previousValue, nextValue) {
-  return previousValue !== nextValue;
 }
 
 export function getPaginationPageValue(dataPagination, fallbackPage) {
@@ -252,7 +245,7 @@ export function formatResetTime(date) {
  * @param {number} percentage - Remaining percentage (0-100)
  * @returns {string} Color name: "green" | "yellow" | "red"
  */
-export function getStatusColor(percentage) {
+function getStatusColor(percentage) {
   if (percentage > 70) return "green";
   if (percentage >= 30) return "yellow";
   return "red"; // 0-29% including 0% (out of quota) - show red
@@ -263,7 +256,7 @@ export function getStatusColor(percentage) {
  * @param {number} percentage - Remaining percentage (0-100)
  * @returns {string} Emoji: "🟢" | "🟡" | "🔴"
  */
-export function getStatusEmoji(percentage) {
+function getStatusEmoji(percentage) {
   if (percentage > 70) return "🟢";
   if (percentage >= 30) return "🟡";
   return "🔴"; // 0-29% including 0% (out of quota) - show red

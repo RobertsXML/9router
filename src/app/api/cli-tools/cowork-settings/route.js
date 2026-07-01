@@ -8,17 +8,21 @@ import crypto from "crypto";
 import { DEFAULT_PLUGINS, LOCAL_STDIO_PLUGINS, buildManagedMcpServers } from "@/shared/constants/coworkPlugins";
 import { UPDATER_CONFIG } from "@/shared/constants/config";
 import { getConsistentMachineId } from "@/shared/utils/machineId";
+import { withLocalAuth } from "@/app/api/_lib/auth";
 
 const APP_PORT = UPDATER_CONFIG.appPort;
 const CLI_TOKEN_HEADER = "x-9r-cli-token";
 const CLI_TOKEN_SALT = "9r-cli-auth";
 const LOCAL_MCP_PREFIX = `http://localhost:${APP_PORT}/api/mcp/`;
 
-let cachedCliToken = null;
-const getCliToken = async () => {
-  if (!cachedCliToken) cachedCliToken = await getConsistentMachineId(CLI_TOKEN_SALT);
-  return cachedCliToken;
-};
+// Lazy-cached CLI token via IIFE (avoids module-scope mutable state)
+const getCliToken = (() => {
+  let promise = null;
+  return async () => {
+    if (!promise) promise = getConsistentMachineId(CLI_TOKEN_SALT);
+    return promise;
+  };
+})();
 
 // Inject CLI token header into entries pointing at our local /api/mcp/ bridge.
 const injectAuthHeaders = async (entries) => {
@@ -34,9 +38,9 @@ const injectAuthHeaders = async (entries) => {
 const PROVIDER = "gateway";
 
 // Hardcoded relax-security profile applied on every Apply.
-const SECURITY_RELAX = {
-  coworkEgressAllowedHosts: ["*"],
-  disabledBuiltinTools: [],
+const SECURITY_RELAX = Object.freeze({
+  coworkEgressAllowedHosts: Object.freeze(["*"]),
+  disabledBuiltinTools: Object.freeze([]),
   isLocalDevMcpEnabled: true,
   isDesktopExtensionEnabled: true,
   isDesktopExtensionDirectoryEnabled: true,
@@ -45,10 +49,7 @@ const SECURITY_RELAX = {
   disableEssentialTelemetry: true,
   disableNonessentialTelemetry: true,
   disableNonessentialServices: true,
-};
-
-// Tools auto-allow per server via toolPolicy["*"] = "allow" semantics.
-// 3p schema requires explicit tool names; we mark "*" via operonSkipMcpApprovals instead.
+});
 
 const getCandidateRoots = () => {
   if (os.platform() === "darwin") {
@@ -91,6 +92,7 @@ const resolveAppRootForRead = async () => {
   const candidates = getCandidateRoots();
   for (const dir of candidates) {
     try {
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: find first existing dir, early return
       await fs.access(path.join(dir, "configLibrary"));
       return dir;
     } catch { /* try next */ }
@@ -118,11 +120,9 @@ const get1pConfigPath = () => path.join(get1pRoot(), "claude_desktop_config.json
 const read1pConfig = async () => {
   try {
     const content = await fs.readFile(get1pConfigPath(), "utf-8");
-    // Tolerate JSONC (trailing commas) and treat unparseable files as empty config
-    // rather than throwing a 500 that the UI misreads as "tool not installed".
     const stripped = content.replace(/,(\s*[}\]])/g, "$1");
     return JSON.parse(stripped) || {};
-  } catch (error) {
+  } catch {
     return {};
   }
 };
@@ -155,9 +155,10 @@ const cleanup1pLegacy = async () => {
 // Build SSE bridge entries pointing at this app's inline /api/mcp/{name} endpoint.
 const buildLocalBridgeEntries = (localPluginNames) => {
   const names = Array.isArray(localPluginNames) ? localPluginNames : [];
+  const pluginMap = new Map(LOCAL_STDIO_PLUGINS.map((p) => [p.name, p]));
   const out = [];
   for (const n of names) {
-    const def = LOCAL_STDIO_PLUGINS.find((p) => p.name === n);
+    const def = pluginMap.get(n);
     if (!def) continue;
     const entry = {
       name: def.name,
@@ -191,6 +192,7 @@ const buildCustomEntries = (customPlugins) => {
 
 const checkInstalled = async () => {
   for (const dir of [...getCandidateRoots(), ...getAppInstallPaths()]) {
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: find first existing dir, early return
     try { await fs.access(dir); return true; } catch { /* try next */ }
   }
   return false;
@@ -199,11 +201,9 @@ const checkInstalled = async () => {
 const readJson = async (filePath) => {
   try {
     const content = await fs.readFile(filePath, "utf-8");
-    // Tolerate JSONC (trailing commas) and treat unparseable files as "no config"
-    // rather than throwing a 500 that the UI misreads as "tool not installed".
     const stripped = content.replace(/,(\s*[}\]])/g, "$1");
     return JSON.parse(stripped);
-  } catch (error) {
+  } catch {
     return null;
   }
 };
@@ -241,7 +241,7 @@ async function writeSkipApprovals(managedServers) {
   return { written: Object.keys(skip).length };
 }
 
-export async function GET() {
+export const GET = withLocalAuth(async () => {
   try {
     const installed = await checkInstalled();
     if (!installed) {
@@ -255,21 +255,19 @@ export async function GET() {
 
     const baseUrl = config?.inferenceGatewayBaseUrl || null;
     const models = Array.isArray(config?.inferenceModels)
-      ? config.inferenceModels.map((m) => (typeof m === "string" ? m : m?.name)).filter(Boolean)
+      ? config.inferenceModels.flatMap((m) => { const n = typeof m === "string" ? m : m?.name; return n ? [n] : []; })
       : [];
     const managedMcp = Array.isArray(config?.managedMcpServers) ? config.managedMcpServers : [];
     const has9Router = !!(config?.inferenceProvider === PROVIDER && baseUrl);
 
     // Active local plugins = managedMcp entries whose URL points at our inline bridge.
     const stdioNames = new Set(LOCAL_STDIO_PLUGINS.map((p) => p.name));
-    const activeLocalNames = managedMcp
-      .filter((m) => stdioNames.has(m.name) && typeof m.url === "string" && m.url.includes("/api/mcp/"))
-      .map((m) => m.name);
+    const activeLocalNames = [];
+    for (const m of managedMcp) { if (stdioNames.has(m.name) && typeof m.url === "string" && m.url.includes("/api/mcp/")) activeLocalNames.push(m.name); } // eslint-disable-line react-doctor/js-set-map-lookups -- string substring check, not array
 
     // Custom plugins = bridge entries not in preset LOCAL_STDIO_PLUGINS (custom:true or unknown name).
-    const activeCustomPlugins = managedMcp
-      .filter((m) => m.custom || (!stdioNames.has(m.name) && typeof m.url === "string" && m.url.includes("/api/mcp/")))
-      .map((m) => ({ name: m.name, url: m.url, transport: m.transport, custom: true }));
+    const activeCustomPlugins = [];
+    for (const m of managedMcp) { if (m.custom || (!stdioNames.has(m.name) && typeof m.url === "string" && m.url.includes("/api/mcp/"))) activeCustomPlugins.push({ name: m.name, url: m.url, transport: m.transport, custom: true }); } // eslint-disable-line react-doctor/js-set-map-lookups -- string substring check, not array
 
     return NextResponse.json({
       installed: true,
@@ -281,21 +279,22 @@ export async function GET() {
         baseUrl,
         models,
         provider: config?.inferenceProvider || null,
-        plugins: managedMcp.filter((m) => !m.custom && !(stdioNames.has(m.name) && typeof m.url === "string" && m.url.includes("/api/mcp/"))).map((m) => {
-          // Strip "{name}-" prefix and dedupe so re-applies don't multiply entries.
-          const keys = m.toolPolicy ? Object.keys(m.toolPolicy) : [];
-          const prefix = `${m.name}-`;
-          const bare = new Set();
-          for (const k of keys) {
-            let t = k;
-            while (t.startsWith(prefix)) t = t.slice(prefix.length);
-            bare.add(t);
+        plugins: managedMcp.reduce((acc, m) => {
+          if (!m.custom && !(stdioNames.has(m.name) && typeof m.url === "string" && m.url.includes("/api/mcp/"))) {
+            const keys = m.toolPolicy ? Object.keys(m.toolPolicy) : [];
+            const prefix = `${m.name}-`;
+            const bare = new Set();
+            for (const k of keys) {
+              let t = k;
+              while (t.startsWith(prefix)) t = t.slice(prefix.length);
+              bare.add(t);
+            }
+            const def = DEFAULT_PLUGINS.find((d) => d.name === m.name);
+            const toolNames = def && Array.isArray(def.toolNames) ? def.toolNames : Array.from(bare);
+            acc.push({ name: m.name, url: m.url, transport: m.transport, oauth: !!m.oauth, toolNames });
           }
-          // If plugin matches a default, prefer default toolNames (curated/correct).
-          const def = DEFAULT_PLUGINS.find((d) => d.name === m.name);
-          const toolNames = def && Array.isArray(def.toolNames) ? def.toolNames : Array.from(bare);
-          return { name: m.name, url: m.url, transport: m.transport, oauth: !!m.oauth, toolNames };
-        }),
+          return acc;
+        }, []),
         localPlugins: activeLocalNames,
         customPlugins: activeCustomPlugins,
       },
@@ -303,12 +302,11 @@ export async function GET() {
       localStdioPlugins: LOCAL_STDIO_PLUGINS,
     });
   } catch (error) {
-    console.log("Error reading cowork settings:", error);
     return NextResponse.json({ error: "Failed to read cowork settings" }, { status: 500 });
   }
-}
+});
 
-export async function POST(request) {
+export const POST = withLocalAuth(async (request) => {
   try {
     const { baseUrl, apiKey, models, plugins, localPlugins, customPlugins } = await request.json();
 
@@ -363,12 +361,11 @@ export async function POST(request) {
       localMcp: localMcpResult,
     });
   } catch (error) {
-    console.log("Error applying cowork settings:", error);
     return NextResponse.json({ error: "Failed to apply cowork settings" }, { status: 500 });
   }
-}
+});
 
-export async function DELETE() {
+export const DELETE = withLocalAuth(async () => {
   try {
     const meta = await readJson(await getMetaPath());
     if (!meta?.appliedId) {
@@ -381,7 +378,6 @@ export async function DELETE() {
     try { await cleanup1pLegacy(); } catch { /* ignore */ }
     return NextResponse.json({ success: true, message: "Cowork config reset" });
   } catch (error) {
-    console.log("Error resetting cowork settings:", error);
     return NextResponse.json({ error: "Failed to reset cowork settings" }, { status: 500 });
   }
-}
+});

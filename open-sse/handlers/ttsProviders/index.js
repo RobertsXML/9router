@@ -9,6 +9,9 @@ import gemini, { fetchGeminiVoices } from "./gemini.js";
 import { FORMAT_HANDLERS } from "./genericFormats.js";
 import { parseModelVoice } from "./_base.js";
 
+// Re-export individual voice fetchers for ttsCore.js backward-compat re-exports
+export { fetchEdgeTtsVoices, fetchLocalDeviceVoices, fetchElevenLabsVoices, fetchGeminiVoices };
+
 // Special providers with custom synthesize() logic
 const SPECIAL_ADAPTERS = {
   "google-tts": googleTts,
@@ -48,5 +51,3 @@ export const VOICE_FETCHERS = {
   gemini: fetchGeminiVoices,
 };
 
-// Re-export for backward compat
-export { fetchEdgeTtsVoices, fetchLocalDeviceVoices, fetchElevenLabsVoices, fetchGeminiVoices };

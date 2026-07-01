@@ -59,7 +59,8 @@ export default function GetStarted() {
               
               {/* Terminal content */}
               <div className="p-6 font-mono text-sm leading-relaxed overflow-x-auto">
-                <div 
+                <button
+                  type="button"
                   className="flex items-center gap-2 mb-4 group cursor-pointer"
                   onClick={() => handleCopy("npx 9router")}
                 >
@@ -68,7 +69,7 @@ export default function GetStarted() {
                   <span className="ml-auto text-gray-500 text-xs opacity-0 group-hover:opacity-100">
                     {copied === "landing" ? "✓ Copied" : "Copy"}
                   </span>
-                </div>
+                </button>
                 
                 <div className="text-gray-400 mb-6">
                   <span className="text-[#f97815]">&gt;</span> Starting 9Router...<br/>

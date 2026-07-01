@@ -58,7 +58,7 @@ function sortConnections(connections, sort) {
   const list = [...connections];
 
   if (sort === "provider") {
-    return list.sort((a, b) => {
+    return list.toSorted((a, b) => {
       const orderA = USAGE_SUPPORTED_PROVIDERS.indexOf(a.provider);
       const orderB = USAGE_SUPPORTED_PROVIDERS.indexOf(b.provider);
       if (orderA !== orderB) return orderA - orderB;
@@ -66,7 +66,7 @@ function sortConnections(connections, sort) {
     });
   }
 
-  return list.sort((a, b) => {
+  return list.toSorted((a, b) => {
     const priorityA = a.priority ?? Number.MAX_SAFE_INTEGER;
     const priorityB = b.priority ?? Number.MAX_SAFE_INTEGER;
     if (priorityA !== priorityB) return priorityA - priorityB;
@@ -87,7 +87,7 @@ export async function GET(request) {
 
     const allConnections = await getProviderConnections();
     const eligibleConnections = allConnections.filter(isUsageEligible);
-    const providerOptions = Array.from(new Set(eligibleConnections.map((conn) => conn.provider))).sort();
+    const providerOptions = Array.from(new Set(eligibleConnections.map((conn) => conn.provider))).toSorted();
 
     const providerFilteredConnections = eligibleConnections.filter((conn) => (
       provider === "all" || conn.provider === provider

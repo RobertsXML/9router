@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useReducer } from "react";
 import PropTypes from "prop-types";
 import { Modal, Button, Input, OAuthModal } from "@/shared/components";
 
@@ -12,6 +12,30 @@ function getRedirectUri() {
   return `http://localhost:${port}/callback`;
 }
 
+const FORM_INITIAL = { mode: null, baseUrl: GITLAB_COM, clientId: "", clientSecret: "", pat: "" };
+
+function formReducer(state, action) {
+  switch (action.type) {
+    case 'SET_FIELD': return { ...state, [action.field]: action.value };
+    case 'RESET': return FORM_INITIAL;
+    default: return state;
+  }
+}
+
+function authReducer(state, action) {
+  switch (action.type) {
+    case 'SET_LOADING': return { ...state, loading: action.payload };
+    case 'SET_ERROR': return { ...state, error: action.payload };
+    case 'SHOW_OAUTH': return { ...state, showOAuth: true, oauthMeta: action.payload, error: null };
+    case 'HIDE_OAUTH': return { ...state, showOAuth: false, oauthMeta: null };
+    case 'PAT_START': return { ...state, loading: true, error: null };
+    case 'PAT_DONE': return { ...state, loading: false };
+    case 'PAT_ERROR': return { ...state, loading: false, error: action.payload };
+    case 'RESET': return { loading: false, error: null, showOAuth: false, oauthMeta: null };
+    default: return state;
+  }
+}
+
 /**
  * GitLab Duo Authentication Modal
  * Supports two modes:
@@ -19,26 +43,12 @@ function getRedirectUri() {
  * - PAT: requires Personal Access Token
  */
 export default function GitLabAuthModal({ isOpen, providerInfo, onSuccess, onClose }) {
-  const [mode, setMode] = useState(null); // null | "oauth" | "pat"
-  const [baseUrl, setBaseUrl] = useState(GITLAB_COM);
-  const [clientId, setClientId] = useState("");
-  const [clientSecret, setClientSecret] = useState("");
-  const [pat, setPat] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [showOAuth, setShowOAuth] = useState(false);
-  const [oauthMeta, setOauthMeta] = useState(null);
+  const [form, dispatchForm] = useReducer(formReducer, FORM_INITIAL);
+  const [{ loading, error, showOAuth, oauthMeta }, dispatchAuth] = useReducer(authReducer, { loading: false, error: null, showOAuth: false, oauthMeta: null });
 
   const reset = () => {
-    setMode(null);
-    setBaseUrl(GITLAB_COM);
-    setClientId("");
-    setClientSecret("");
-    setPat("");
-    setError(null);
-    setLoading(false);
-    setShowOAuth(false);
-    setOauthMeta(null);
+    dispatchForm({ type: 'RESET' });
+    dispatchAuth({ type: 'RESET' });
   };
 
   const handleClose = () => {
@@ -47,36 +57,31 @@ export default function GitLabAuthModal({ isOpen, providerInfo, onSuccess, onClo
   };
 
   const handleOAuthStart = () => {
-    if (!clientId.trim()) {
-      setError("Client ID is required");
+    if (!form.clientId.trim()) {
+      dispatchAuth({ type: 'SET_ERROR', payload: "Client ID is required" });
       return;
     }
-    setError(null);
-    setOauthMeta({ baseUrl: baseUrl.trim() || GITLAB_COM, clientId: clientId.trim(), clientSecret: clientSecret.trim() });
-    setShowOAuth(true);
+    dispatchAuth({ type: 'SHOW_OAUTH', payload: { baseUrl: form.baseUrl.trim() || GITLAB_COM, clientId: form.clientId.trim(), clientSecret: form.clientSecret.trim() } });
   };
 
   const handlePATSubmit = async () => {
-    if (!pat.trim()) {
-      setError("Personal Access Token is required");
+    if (!form.pat.trim()) {
+      dispatchAuth({ type: 'SET_ERROR', payload: "Personal Access Token is required" });
       return;
     }
-    setLoading(true);
-    setError(null);
+    dispatchAuth({ type: 'PAT_START' });
     try {
       const res = await fetch("/api/oauth/gitlab/pat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: pat.trim(), baseUrl: baseUrl.trim() || GITLAB_COM }),
+        body: JSON.stringify({ token: form.pat.trim(), baseUrl: form.baseUrl.trim() || GITLAB_COM }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Authentication failed");
       onSuccess?.();
       handleClose();
     } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
+      dispatchAuth({ type: 'PAT_ERROR', payload: err.message });
     }
   };
 
@@ -91,7 +96,7 @@ export default function GitLabAuthModal({ isOpen, providerInfo, onSuccess, onClo
         providerInfo={providerInfo}
         oauthMeta={oauthMeta}
         onSuccess={() => { onSuccess?.(); handleClose(); }}
-        onClose={() => { setShowOAuth(false); setOauthMeta(null); }}
+        onClose={() => { dispatchAuth({ type: 'HIDE_OAUTH' }); }}
       />
     );
   }
@@ -100,14 +105,15 @@ export default function GitLabAuthModal({ isOpen, providerInfo, onSuccess, onClo
     <Modal isOpen={isOpen} title="Connect GitLab Duo" onClose={handleClose} size="lg">
       <div className="flex flex-col gap-4">
         {/* Mode selection */}
-        {!mode && (
+        {!form.mode && (
           <>
             <p className="text-sm text-text-muted">
               Choose how to authenticate with GitLab Duo:
             </p>
             <div className="grid grid-cols-2 gap-3">
               <button
-                onClick={() => setMode("oauth")}
+                type="button"
+                onClick={() => dispatchForm({ type: 'SET_FIELD', field: 'mode', value: "oauth" })}
                 className="flex flex-col items-center gap-2 p-4 rounded-lg border border-border hover:border-primary hover:bg-primary/5 transition-colors text-left"
               >
                 <span className="material-symbols-outlined text-2xl text-primary">lock_open</span>
@@ -117,7 +123,8 @@ export default function GitLabAuthModal({ isOpen, providerInfo, onSuccess, onClo
                 </div>
               </button>
               <button
-                onClick={() => setMode("pat")}
+                type="button"
+                onClick={() => dispatchForm({ type: 'SET_FIELD', field: 'mode', value: "pat" })}
                 className="flex flex-col items-center gap-2 p-4 rounded-lg border border-border hover:border-primary hover:bg-primary/5 transition-colors text-left"
               >
                 <span className="material-symbols-outlined text-2xl text-primary">key</span>
@@ -131,25 +138,25 @@ export default function GitLabAuthModal({ isOpen, providerInfo, onSuccess, onClo
         )}
 
         {/* OAuth mode */}
-        {mode === "oauth" && (
+        {form.mode === "oauth" && (
           <>
             <p className="text-xs text-text-muted">
               Create an OAuth app at{" "}
-              <a href={`${baseUrl.trim() || GITLAB_COM}/-/profile/applications`} target="_blank" rel="noreferrer" className="text-primary underline">
+              <a href={`${form.baseUrl.trim() || GITLAB_COM}/-/profile/applications`} target="_blank" rel="noreferrer" className="text-primary underline">
                 GitLab Applications
               </a>{" "}
               with redirect URI{" "}
               <code className="bg-sidebar px-1 rounded text-xs">{getRedirectUri()}</code>
             </p>
-            <Input label="GitLab Base URL" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={GITLAB_COM} />
-            <Input label="Client ID" value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder="Your OAuth application client ID" />
-            <Input label="Client Secret (optional for PKCE)" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} placeholder="Leave empty for public PKCE app" />
+            <Input label="GitLab Base URL" value={form.baseUrl} onChange={(e) => dispatchForm({ type: 'SET_FIELD', field: 'baseUrl', value: e.target.value })} placeholder={GITLAB_COM} />
+            <Input label="Client ID" value={form.clientId} onChange={(e) => dispatchForm({ type: 'SET_FIELD', field: 'clientId', value: e.target.value })} placeholder="Your OAuth application client ID" />
+            <Input label="Client Secret (optional for PKCE)" value={form.clientSecret} onChange={(e) => dispatchForm({ type: 'SET_FIELD', field: 'clientSecret', value: e.target.value })} placeholder="Leave empty for public PKCE app" />
             {error && <p className="text-sm text-red-500">{error}</p>}
             <div className="flex gap-2">
-              <Button onClick={handleOAuthStart} fullWidth disabled={!clientId.trim()}>
+              <Button onClick={handleOAuthStart} fullWidth disabled={!form.clientId.trim()}>
                 Authorize
               </Button>
-              <Button onClick={() => { setMode(null); setError(null); }} variant="ghost" fullWidth>
+              <Button onClick={() => { dispatchForm({ type: 'SET_FIELD', field: 'mode', value: null }); dispatchAuth({ type: 'SET_ERROR', payload: null }); }} variant="ghost" fullWidth>
                 Back
               </Button>
             </div>
@@ -157,25 +164,25 @@ export default function GitLabAuthModal({ isOpen, providerInfo, onSuccess, onClo
         )}
 
         {/* PAT mode */}
-        {mode === "pat" && (
+        {form.mode === "pat" && (
           <>
             <p className="text-xs text-text-muted">
               Create a PAT at{" "}
-              <a href={`${baseUrl.trim() || GITLAB_COM}/-/user_settings/personal_access_tokens`} target="_blank" rel="noreferrer" className="text-primary underline">
+              <a href={`${form.baseUrl.trim() || GITLAB_COM}/-/user_settings/personal_access_tokens`} target="_blank" rel="noreferrer" className="text-primary underline">
                 GitLab Access Tokens
               </a>{" "}
               with scopes: <code className="bg-sidebar px-1 rounded text-xs">api</code>,{" "}
               <code className="bg-sidebar px-1 rounded text-xs">read_user</code>, and{" "}
               <code className="bg-sidebar px-1 rounded text-xs">ai_features</code>.
             </p>
-            <Input label="GitLab Base URL" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={GITLAB_COM} />
-            <Input label="Personal Access Token" value={pat} onChange={(e) => setPat(e.target.value)} placeholder="glpat-xxxxxxxxxxxxxxxxxxxx" type="password" />
+            <Input label="GitLab Base URL" value={form.baseUrl} onChange={(e) => dispatchForm({ type: 'SET_FIELD', field: 'baseUrl', value: e.target.value })} placeholder={GITLAB_COM} />
+            <Input label="Personal Access Token" value={form.pat} onChange={(e) => dispatchForm({ type: 'SET_FIELD', field: 'pat', value: e.target.value })} placeholder="glpat-xxxxxxxxxxxxxxxxxxxx" type="password" />
             {error && <p className="text-sm text-red-500">{error}</p>}
             <div className="flex gap-2">
-              <Button onClick={handlePATSubmit} fullWidth disabled={!pat.trim() || loading} loading={loading}>
+              <Button onClick={handlePATSubmit} fullWidth disabled={!form.pat.trim() || loading} loading={loading}>
                 Connect
               </Button>
-              <Button onClick={() => { setMode(null); setError(null); }} variant="ghost" fullWidth>
+              <Button onClick={() => { dispatchForm({ type: 'SET_FIELD', field: 'mode', value: null }); dispatchAuth({ type: 'SET_ERROR', payload: null }); }} variant="ghost" fullWidth>
                 Back
               </Button>
             </div>

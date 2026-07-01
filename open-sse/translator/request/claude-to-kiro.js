@@ -22,7 +22,7 @@
  * the `<thinking_mode>enabled</thinking_mode>` reasoning trigger, matching
  * buildKiroPayload.
  */
-import { register } from "../index.js";
+import { register } from "../registry.js";
 import { FORMATS } from "../formats.js";
 import { v4 as uuidv4 } from "uuid";
 import {
@@ -32,8 +32,9 @@ import {
   KIRO_AGENTIC_SYSTEM_PROMPT,
   resolveDefaultProfileArn,
 } from "../../config/kiroConstants.js";
-import { DEFAULT_IMAGE_MIME } from "../schema/index.js";
-import { ROLE, CLAUDE_BLOCK } from "../schema/index.js";
+import { DEFAULT_IMAGE_MIME } from "../schema/defaults.js";
+import { ROLE } from "../schema/roles.js";
+import { CLAUDE_BLOCK } from "../schema/blocks.js";
 
 /** Stringify a tool_use input as a readable line. */
 function toolUseToText(name, input) {
@@ -53,8 +54,11 @@ function toolResultBlockToText(content) {
     text = content;
   } else if (Array.isArray(content)) {
     text = content
-      .map((c) => (typeof c === "string" ? c : c?.text || ""))
-      .filter(Boolean)
+      .flatMap((c) => {
+        if (typeof c === "string") return c ? [c] : [];
+        const t = c?.text;
+        return t ? [t] : [];
+      })
       .join("\n");
   } else if (content) {
     try {
@@ -195,11 +199,7 @@ function convertClaudeMessagesToKiro(messages, tools, model) {
             if (typeof block.content === "string") {
               resultContent = block.content;
             } else if (Array.isArray(block.content)) {
-              resultContent =
-                block.content
-                  .filter((c) => c.type === CLAUDE_BLOCK.TEXT)
-                  .map((c) => c.text)
-                  .join("\n") || JSON.stringify(block.content);
+              resultContent = block.content.reduce((acc, c) => { if (c.type === CLAUDE_BLOCK.TEXT) acc.push(c.text); return acc; }, []).join("\n") || JSON.stringify(block.content);
             } else if (block.content) {
               resultContent = JSON.stringify(block.content);
             }

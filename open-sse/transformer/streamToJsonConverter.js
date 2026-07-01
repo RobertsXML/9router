@@ -65,6 +65,7 @@ export async function convertResponsesStreamToJson(stream) {
 
   try {
     while (true) {
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: streaming reader must process chunks in order
       const { done, value } = await reader.read();
       if (done) break;
 

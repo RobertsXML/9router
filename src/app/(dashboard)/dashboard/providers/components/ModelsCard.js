@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo, useReducer } from "react";
 import PropTypes from "prop-types";
 import { Card, Button, Modal } from "@/shared/components";
 import { getModelsByProviderId, getModelKind } from "@/shared/constants/models";
@@ -24,7 +24,7 @@ export function ModelRow({ model, fullModel, copied, onCopy, testStatus, isCusto
         </div>
         {onTest && (
           <div className="relative group/btn">
-            <button onClick={onTest} disabled={isTesting} className={`p-0.5 hover:bg-sidebar rounded text-text-muted hover:text-primary transition-opacity ${isTesting ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
+            <button type="button" onClick={onTest} disabled={isTesting} className={`p-0.5 hover:bg-sidebar rounded text-text-muted hover:text-primary transition-opacity ${isTesting ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
               <span className="material-symbols-outlined text-sm" style={isTesting ? { animation: "spin 1s linear infinite" } : undefined}>
                 {isTesting ? "progress_activity" : "science"}
               </span>
@@ -35,7 +35,7 @@ export function ModelRow({ model, fullModel, copied, onCopy, testStatus, isCusto
           </div>
         )}
         <div className="relative group/btn">
-          <button onClick={() => onCopy(fullModel, `model-${model.id}`)} className="p-0.5 hover:bg-sidebar rounded text-text-muted hover:text-primary">
+          <button type="button" onClick={() => onCopy(fullModel, `model-${model.id}`)} className="p-0.5 hover:bg-sidebar rounded text-text-muted hover:text-primary">
             <span className="material-symbols-outlined text-sm">{copied === `model-${model.id}` ? "check" : "content_copy"}</span>
           </button>
           <span className="pointer-events-none absolute mt-1 top-5 left-1/2 -translate-x-1/2 text-[10px] text-text-muted whitespace-nowrap opacity-0 group-hover/btn:opacity-100 transition-opacity">
@@ -44,7 +44,7 @@ export function ModelRow({ model, fullModel, copied, onCopy, testStatus, isCusto
         </div>
         {isFree && <span className="text-[10px] font-bold text-green-500 bg-green-500/10 px-1.5 py-0.5 rounded">FREE</span>}
         {isCustom && (
-          <button onClick={onDeleteAlias} className="p-0.5 hover:bg-red-500/10 rounded text-text-muted hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity ml-auto" title="Remove custom model">
+          <button type="button" onClick={onDeleteAlias} className="p-0.5 hover:bg-red-500/10 rounded text-text-muted hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity ml-auto" title="Remove custom model">
             <span className="material-symbols-outlined text-sm">close</span>
           </button>
         )}
@@ -80,14 +80,14 @@ function AddCustomModelModal({ isOpen, onSave, onClose }) {
     <Modal isOpen={isOpen} title="Add Custom Model" onClose={onClose}>
       <div className="flex flex-col gap-4">
         <div>
-          <label className="text-xs text-text-muted mb-1 block">Model ID</label>
+          <label htmlFor="models-card-model-id" className="text-xs text-text-muted mb-1 block">Model ID</label>
           <input
+            id="models-card-model-id"
             className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"
             value={modelId}
             onChange={(e) => setModelId(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSave()}
             placeholder="e.g. tts-1-hd"
-            autoFocus
           />
         </div>
         <div className="flex gap-2">
@@ -108,15 +108,30 @@ AddCustomModelModal.propTypes = {
 // ── ModelsCard ─────────────────────────────────────────────────
 // Self-contained card: shows models for a provider, filtered by optional `kindFilter`.
 // kindFilter: if provided, only shows models with matching type/kinds field.
+function modelsReducer(state, action) {
+  switch (action.type) {
+    case "SET_DATA":
+      return { ...state, ...action.values };
+    case "SET":
+      return { ...state, [action.key]: action.value };
+    case "SET_TEST_RESULT":
+      return { ...state, modelTestResults: { ...state.modelTestResults, [action.modelId]: action.result }, testingModelId: null };
+    default:
+      return state;
+  }
+}
+
 export default function ModelsCard({ providerId, kindFilter, providerAliasOverride }) {
   const { copied, copy } = useCopyToClipboard();
-  const [modelAliases, setModelAliases] = useState({});
-  const [customModels, setCustomModels] = useState([]);
-  const [modelTestResults, setModelTestResults] = useState({});
-  const [testingModelId, setTestingModelId] = useState(null);
-  const [testError, setTestError] = useState("");
-  const [showAddCustomModel, setShowAddCustomModel] = useState(false);
-  const [connections, setConnections] = useState([]);
+  const [state, dispatch] = useReducer(modelsReducer, {
+    modelAliases: {},
+    customModels: [],
+    modelTestResults: {},
+    testingModelId: null,
+    testError: "",
+    showAddCustomModel: false,
+    connections: [],
+  });
 
   const providerAlias = providerAliasOverride || getProviderAlias(providerId);
   const effectiveType = kindFilter || "llm";
@@ -128,15 +143,20 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
         fetch("/api/providers", { cache: "no-store" }),
         fetch("/api/models/custom", { cache: "no-store" }),
       ]);
-      const aliasData = await aliasRes.json();
-      const connData = await connRes.json();
-      const customData = await customRes.json();
-      if (aliasRes.ok) setModelAliases(aliasData.aliases || {});
-      if (connRes.ok) setConnections((connData.connections || []).filter((c) => c.provider === providerId));
-      if (customRes.ok) setCustomModels(customData.models || []);
+      const [aliasData, connData, customData] = await Promise.all([
+        aliasRes.json(),
+        connRes.json(),
+        customRes.json(),
+      ]);
+      dispatch({ type: "SET_DATA", values: {
+        modelAliases: aliasRes.ok ? aliasData.aliases || {} : {},
+        connections: connRes.ok ? (connData.connections || []).filter((c) => c.provider === providerId) : [],
+        customModels: customRes.ok ? customData.models || [] : [],
+      }});
     } catch (e) { console.log("ModelsCard fetch error:", e); }
   }, [providerId]);
 
+  // eslint-disable-next-line react-hooks/no-derived-state -- fetchData is async API fetch, not synchronous derivation
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const handleSetAlias = async (modelId, alias) => {
@@ -184,8 +204,8 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
   };
 
   const handleTestModel = async (modelId) => {
-    if (testingModelId) return;
-    setTestingModelId(modelId);
+    if (state.testingModelId) return;
+    dispatch({ type: "SET", key: "testingModelId", value: modelId });
     try {
       const res = await fetch("/api/models/test", {
         method: "POST",
@@ -193,31 +213,34 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
         body: JSON.stringify({ model: `${providerAlias}/${modelId}`, kind: kindFilter }),
       });
       const data = await res.json();
-      setModelTestResults((prev) => ({ ...prev, [modelId]: data.ok ? "ok" : "error" }));
-      setTestError(data.ok ? "" : (data.error || "Model not reachable"));
+      dispatch({ type: "SET_TEST_RESULT", modelId, result: data.ok ? "ok" : "error" });
+      dispatch({ type: "SET", key: "testError", value: data.ok ? "" : (data.error || "Model not reachable") });
     } catch {
-      setModelTestResults((prev) => ({ ...prev, [modelId]: "error" }));
-      setTestError("Network error");
-    } finally { setTestingModelId(null); }
+      dispatch({ type: "SET_TEST_RESULT", modelId, result: "error" });
+      dispatch({ type: "SET", key: "testError", value: "Network error" });
+    }
   };
 
   // Built-in models — filter by kindFilter if provided
-  const allBuiltIn = getModelsByProviderId(providerId);
-  const builtInModels = kindFilter
-    ? allBuiltIn.filter((m) => {
-        if (m.kinds) return m.kinds.includes(kindFilter);
-        return getModelKind(m, "llm") === kindFilter;
-      })
-    : allBuiltIn;
+  const builtInModels = useMemo(() => {
+    const allBuiltIn = getModelsByProviderId(providerId);
+    return kindFilter
+      ? allBuiltIn.filter((m) => {
+          if (m.kinds) return m.kinds.includes(kindFilter);
+          return getModelKind(m, "llm") === kindFilter;
+        })
+      : allBuiltIn;
+  }, [providerId, kindFilter]);
 
   // Custom models for this provider + kind, dedupe vs built-in
-  const myCustomModels = customModels.filter(
-    (m) => m.providerAlias === providerAlias
-      && getModelKind(m, "llm") === effectiveType
-      && !builtInModels.some((b) => b.id === m.id)
+  const myCustomModels = useMemo(
+    () => state.customModels.filter(
+      (m) => m.providerAlias === providerAlias
+        && getModelKind(m, "llm") === effectiveType
+        && !builtInModels.some((b) => b.id === m.id)
+    ),
+    [state.customModels, providerAlias, effectiveType, builtInModels]
   );
-
-  const displayModels = builtInModels;
 
   return (
     <>
@@ -225,12 +248,12 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">Models{kindFilter ? ` — ${kindFilter.toUpperCase()}` : ""}</h2>
         </div>
-        {testError && <p className="text-xs text-red-500 mb-3 break-words">{testError}</p>}
+        {state.testError && <p className="text-xs text-red-500 mb-3 break-words">{state.testError}</p>}
 
         <div className="flex flex-wrap gap-3">
-          {displayModels.map((model) => {
+          {builtInModels.map((model) => {
             const fullModel = `${providerAlias}/${model.id}`;
-            const existingAlias = Object.entries(modelAliases).find(([, m]) => m === fullModel)?.[0];
+            const existingAlias = Object.entries(state.modelAliases).find(([, m]) => m === fullModel)?.[0];
             return (
               <ModelRow
                 key={model.id}
@@ -241,9 +264,9 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
                 onCopy={copy}
                 onSetAlias={(alias) => handleSetAlias(model.id, alias)}
                 onDeleteAlias={() => handleDeleteAlias(existingAlias)}
-                testStatus={modelTestResults[model.id]}
-                onTest={connections.length > 0 ? () => handleTestModel(model.id) : undefined}
-                isTesting={testingModelId === model.id}
+                testStatus={state.modelTestResults[model.id]}
+                onTest={state.connections.length > 0 ? () => handleTestModel(model.id) : undefined}
+                isTesting={state.testingModelId === model.id}
                 isFree={model.isFree}
               />
             );
@@ -258,15 +281,16 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
               onCopy={copy}
               onSetAlias={() => {}}
               onDeleteAlias={() => handleDeleteCustomModel(model.id)}
-              testStatus={modelTestResults[model.id]}
-              onTest={connections.length > 0 ? () => handleTestModel(model.id) : undefined}
-              isTesting={testingModelId === model.id}
+              testStatus={state.modelTestResults[model.id]}
+              onTest={state.connections.length > 0 ? () => handleTestModel(model.id) : undefined}
+              isTesting={state.testingModelId === model.id}
               isCustom
             />
           ))}
 
           <button
-            onClick={() => setShowAddCustomModel(true)}
+            onClick={() => dispatch({ type: "SET", key: "showAddCustomModel", value: true })}
+            type="button"
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-dashed border-black/15 dark:border-white/15 text-xs text-text-muted hover:text-primary hover:border-primary/40 transition-colors"
           >
             <span className="material-symbols-outlined text-sm">add</span>
@@ -276,12 +300,12 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
       </Card>
 
       <AddCustomModelModal
-        isOpen={showAddCustomModel}
+        isOpen={state.showAddCustomModel}
         onSave={async (modelId) => {
           await handleAddCustomModel(modelId);
-          setShowAddCustomModel(false);
+          dispatch({ type: "SET", key: "showAddCustomModel", value: false });
         }}
-        onClose={() => setShowAddCustomModel(false)}
+        onClose={() => dispatch({ type: "SET", key: "showAddCustomModel", value: false })}
       />
     </>
   );

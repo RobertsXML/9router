@@ -45,6 +45,7 @@ function randomHex(bytes) {
 
 function parseOpenAIMessages(messages) {
   const extracted = [];
+  let lastUserIdx = -1;
   for (const msg of messages) {
     let role = String(msg.role || "user");
     if (role === "developer") role = "system";
@@ -52,15 +53,11 @@ function parseOpenAIMessages(messages) {
     if (typeof msg.content === "string") {
       content = msg.content;
     } else if (Array.isArray(msg.content)) {
-      content = msg.content.filter((c) => c.type === "text").map((c) => String(c.text || "")).join(" ");
+      content = msg.content.reduce((acc, c) => { if (c.type === "text") acc.push(String(c.text || "")); return acc; }, []).join(" ");
     }
     if (!content.trim()) continue;
+    if (role === "user") lastUserIdx = extracted.length;
     extracted.push({ role, text: content });
-  }
-
-  let lastUserIdx = -1;
-  for (let i = extracted.length - 1; i >= 0; i--) {
-    if (extracted[i].role === "user") { lastUserIdx = i; break; }
   }
 
   const parts = [];
@@ -78,10 +75,12 @@ async function* readGrokNdjsonEvents(body, signal) {
   try {
     while (true) {
       if (signal?.aborted) return;
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: stream chunks must be read in order
       const { value, done } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       while (true) {
+        // eslint-disable-next-line react-doctor/js-set-map-lookups -- string search, not array
         const idx = buffer.indexOf("\n");
         if (idx < 0) break;
         const line = buffer.slice(0, idx).trim();
@@ -340,4 +339,4 @@ export class GrokWebExecutor extends BaseExecutor {
   }
 }
 
-export default GrokWebExecutor;
+// ponytail: removed unused default export; add back if dynamic import pattern changes

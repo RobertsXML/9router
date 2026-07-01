@@ -1,37 +1,46 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useRef, useReducer } from "react";
 import PropTypes from "prop-types";
 import { Button, Badge, Input, Modal, Select } from "@/shared/components";
 
+function buildFormData(node, isAnthropic) {
+  return {
+    name: node?.name || "",
+    prefix: node?.prefix || "",
+    apiType: node?.apiType || "chat",
+    baseUrl: node?.baseUrl || (isAnthropic ? "https://api.anthropic.com/v1" : "https://api.openai.com/v1"),
+  };
+}
+
+const apiTypeOptions = [
+  { value: "chat", label: "Chat Completions" },
+  { value: "responses", label: "Responses API" },
+];
+
+function validationReducer(state, action) {
+  switch (action.type) {
+    case 'SET_KEY': return { ...state, checkKey: action.payload };
+    case 'SET_MODEL_ID': return { ...state, checkModelId: action.payload };
+    case 'VALIDATING': return { ...state, validating: true };
+    case 'SET_RESULT': return { ...state, validating: false, validationResult: action.payload };
+    case 'RESET': return { checkKey: "", checkModelId: "", validating: false, validationResult: null };
+    default: return state;
+  }
+}
+
 export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose, isAnthropic }) {
-  const [formData, setFormData] = useState({
-    name: "",
-    prefix: "",
-    apiType: "chat",
-    baseUrl: "https://api.openai.com/v1",
-  });
+  const [formData, setFormData] = useState(() => buildFormData(node, isAnthropic));
   const [saving, setSaving] = useState(false);
-  const [checkKey, setCheckKey] = useState("");
-  const [checkModelId, setCheckModelId] = useState("");
-  const [validating, setValidating] = useState(false);
-  const [validationResult, setValidationResult] = useState(null);
+  const [{ checkKey, checkModelId, validating, validationResult }, dispatchValidation] = useReducer(validationReducer, { checkKey: "", checkModelId: "", validating: false, validationResult: null });
+  const lastNodeRef = useRef(node);
 
-  useEffect(() => {
-    if (node) {
-      setFormData({
-        name: node.name || "",
-        prefix: node.prefix || "",
-        apiType: node.apiType || "chat",
-        baseUrl: node.baseUrl || (isAnthropic ? "https://api.anthropic.com/v1" : "https://api.openai.com/v1"),
-      });
-    }
-  }, [node, isAnthropic]);
-
-  const apiTypeOptions = [
-    { value: "chat", label: "Chat Completions" },
-    { value: "responses", label: "Responses API" },
-  ];
+  // Reset form when node changes (key-based detection avoids useEffect)
+  if (node !== lastNodeRef.current) {
+    lastNodeRef.current = node;
+    setFormData(buildFormData(node, isAnthropic));
+    dispatchValidation({ type: 'RESET' });
+  }
 
   const handleSubmit = async () => {
     if (!formData.name.trim() || !formData.prefix.trim() || !formData.baseUrl.trim()) return;
@@ -52,7 +61,7 @@ export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose,
   };
 
   const handleValidate = async () => {
-    setValidating(true);
+    dispatchValidation({ type: 'VALIDATING' });
     try {
       const res = await fetch("/api/provider-nodes/validate", {
         method: "POST",
@@ -65,11 +74,9 @@ export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose,
         }),
       });
       const data = await res.json();
-      setValidationResult(data.valid ? "success" : "failed");
+      dispatchValidation({ type: 'SET_RESULT', payload: data.valid ? "success" : "failed" });
     } catch {
-      setValidationResult("failed");
-    } finally {
-      setValidating(false);
+      dispatchValidation({ type: 'SET_RESULT', payload: "failed" });
     }
   };
 
@@ -112,7 +119,7 @@ export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose,
             label="API Key (for Check)"
             type="password"
             value={checkKey}
-            onChange={(e) => setCheckKey(e.target.value)}
+            onChange={(e) => dispatchValidation({ type: 'SET_KEY', payload: e.target.value })}
             className="flex-1"
           />
           <div className="pt-6">
@@ -124,7 +131,7 @@ export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose,
         <Input
           label="Model ID (optional)"
           value={checkModelId}
-          onChange={(e) => setCheckModelId(e.target.value)}
+          onChange={(e) => dispatchValidation({ type: 'SET_MODEL_ID', payload: e.target.value })}
           placeholder="e.g. my-model-id"
           hint="If provider lacks /models endpoint, enter a model ID to validate via chat/completions instead."
         />

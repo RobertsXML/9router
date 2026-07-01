@@ -58,6 +58,7 @@ async function pipeSSE(routerRes, res, dumper) {
   const reader = routerRes.body.getReader();
   const decoder = new TextDecoder();
   while (true) {
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: stream reader
     const { done, value } = await reader.read();
     if (done) { if (dumper) dumper.end(); res.end(); break; }
     if (dumper) dumper.writeChunk(value);
@@ -91,6 +92,7 @@ async function pipeTransformedSSE(routerRes, res, transformFn, state) {
   let buffer = "";
 
   while (true) {
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: stream reader
     const { done, value } = await reader.read();
     if (done) break;
 
@@ -172,6 +174,7 @@ async function pipeTransformedEventStream(routerRes, res, transformFn, state) {
   let buffer = "";
 
   while (true) {
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: stream reader
     const { done, value } = await reader.read();
     if (done) break;
 

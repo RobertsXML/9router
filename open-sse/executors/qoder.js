@@ -283,6 +283,7 @@ function wrapQoderSSE(response, model) {
     transform(chunk, controller) {
       buffer += decoder.decode(chunk, { stream: true });
       let nl;
+      // eslint-disable-next-line react-doctor/js-set-map-lookups -- string search, not array
       while ((nl = buffer.indexOf("\n")) !== -1) {
         const line = buffer.slice(0, nl);
         buffer = buffer.slice(nl + 1);
@@ -447,7 +448,7 @@ export class QoderExecutor extends BaseExecutor {
   }
 }
 
-export default QoderExecutor;
+// ponytail: removed unused default export; add back if dynamic import pattern changes
 
 // Internals exposed for unit tests. Not part of the public API — callers
 // should import QoderExecutor and use its public methods.

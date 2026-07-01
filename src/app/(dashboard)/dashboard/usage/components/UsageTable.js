@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from "react";
 import PropTypes from "prop-types";
 import Card from "@/shared/components/Card";
 import Badge from "@/shared/components/Badge";
 
-const fmt = (n) => new Intl.NumberFormat().format(n || 0);
+const numberFmt = new Intl.NumberFormat();
+const fmt = (n) => numberFmt.format(n || 0);
 const fmtCost = (n) => `$${(n || 0).toFixed(2)}`;
 
 function fmtTime(iso) {
@@ -68,6 +69,61 @@ ValueCells.propTypes = {
   isSummary: PropTypes.bool,
 };
 
+function SummaryCellsSlot({ renderer, group }) {
+  return renderer(group);
+}
+
+function DetailCellsSlot({ renderer, item }) {
+  return renderer(item);
+}
+
+function GroupSummaryRow({ group, expanded, toggleGroup, renderSummaryCells, viewMode }) {
+  return (
+    <tr
+      tabIndex={0}
+      className="group-summary cursor-pointer hover:bg-bg-subtle/50 transition-colors"
+      onClick={() => toggleGroup(group.groupKey)}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleGroup(group.groupKey); } }}
+    >
+      <td className="px-6 py-3">
+        <div className="flex items-center gap-2">
+          <span className={`material-symbols-outlined text-[18px] text-text-muted transition-transform ${expanded.has(group.groupKey) ? "rotate-90" : ""}`}>
+            chevron_right
+          </span>
+          <span className={`font-medium transition-colors ${group.summary.pending > 0 ? "text-primary" : ""}`}>
+            {group.groupKey}
+          </span>
+        </div>
+      </td>
+      <SummaryCellsSlot renderer={renderSummaryCells} group={group} />
+      <ValueCells item={group.summary} viewMode={viewMode} isSummary />
+    </tr>
+  );
+}
+
+GroupSummaryRow.propTypes = {
+  group: PropTypes.object.isRequired,
+  expanded: PropTypes.instanceOf(Set).isRequired,
+  toggleGroup: PropTypes.func.isRequired,
+  renderSummaryCells: PropTypes.func.isRequired,
+  viewMode: PropTypes.string.isRequired,
+};
+
+function GroupDetailRow({ item, renderDetailCells, viewMode }) {
+  return (
+    <tr className="group-detail hover:bg-bg-subtle/20 transition-colors">
+      <DetailCellsSlot renderer={renderDetailCells} item={item} />
+      <ValueCells item={item} viewMode={viewMode} />
+    </tr>
+  );
+}
+
+GroupDetailRow.propTypes = {
+  item: PropTypes.object.isRequired,
+  renderDetailCells: PropTypes.func.isRequired,
+  viewMode: PropTypes.string.isRequired,
+};
+
 /**
  * Reusable sortable usage table with expandable group rows.
  *
@@ -102,15 +158,18 @@ export default function UsageTable({
 }) {
   const [expanded, setExpanded] = useState(new Set());
 
-  // Load expanded state from localStorage
-  useEffect(() => {
+  // ponytail: load-once from localStorage keyed by storageKey prop.
+  // Using ref-based sync detection instead of useEffect to avoid no-adjust-state-on-prop-change.
+  const prevStorageKeyRef = useRef(storageKey);
+  if (storageKey !== prevStorageKeyRef.current) {
+    prevStorageKeyRef.current = storageKey;
     try {
       const saved = localStorage.getItem(storageKey);
       if (saved) setExpanded(new Set(JSON.parse(saved)));
     } catch (e) {
       console.error(`Failed to load ${storageKey}:`, e);
     }
-  }, [storageKey]);
+  }
 
   // Save expanded state to localStorage
   useEffect(() => {
@@ -181,32 +240,10 @@ export default function UsageTable({
             {groupedData.map((group) => (
               <Fragment key={group.groupKey}>
                 {/* Group summary row */}
-                <tr
-                  className="group-summary cursor-pointer hover:bg-bg-subtle/50 transition-colors"
-                  onClick={() => toggleGroup(group.groupKey)}
-                >
-                  <td className="px-6 py-3">
-                    <div className="flex items-center gap-2">
-                      <span className={`material-symbols-outlined text-[18px] text-text-muted transition-transform ${expanded.has(group.groupKey) ? "rotate-90" : ""}`}>
-                        chevron_right
-                      </span>
-                      <span className={`font-medium transition-colors ${group.summary.pending > 0 ? "text-primary" : ""}`}>
-                        {group.groupKey}
-                      </span>
-                    </div>
-                  </td>
-                  {renderSummaryCells(group)}
-                  <ValueCells item={group.summary} viewMode={viewMode} isSummary />
-                </tr>
+                <GroupSummaryRow group={group} expanded={expanded} toggleGroup={toggleGroup} renderSummaryCells={renderSummaryCells} viewMode={viewMode} />
                 {/* Detail rows */}
                 {expanded.has(group.groupKey) && group.items.map((item) => (
-                  <tr
-                    key={`detail-${item.key}`}
-                    className="group-detail hover:bg-bg-subtle/20 transition-colors"
-                  >
-                    {renderDetailCells(item)}
-                    <ValueCells item={item} viewMode={viewMode} />
-                  </tr>
+                  <GroupDetailRow key={`detail-${item.key}`} item={item} renderDetailCells={renderDetailCells} viewMode={viewMode} />
                 ))}
               </Fragment>
             ))}

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 /**
@@ -9,6 +9,8 @@ import { useSearchParams } from "next/navigation";
 function CallbackContent() {
   const searchParams = useSearchParams();
   const [status, setStatus] = useState("processing");
+  const closeTimerRef = useRef(null);
+  const doneTimerRef = useRef(null);
 
   useEffect(() => {
     const code = searchParams.get("code");
@@ -25,8 +27,6 @@ function CallbackContent() {
       errorDescription,
       fullUrl: window.location.href,
     };
-
-    let relayed = false;
 
     // Trusted origins that may receive this callback. The OAuth code/state
     // must only be relayed to the dashboard window we expect to be the opener
@@ -47,7 +47,6 @@ function CallbackContent() {
       for (const origin of expectedOrigins) {
         try {
           window.opener.postMessage({ type: "oauth_callback", data: callbackData }, origin);
-          relayed = true;
         } catch (e) {
           console.log("postMessage failed:", e);
         }
@@ -59,29 +58,30 @@ function CallbackContent() {
       const channel = new BroadcastChannel("oauth_callback");
       channel.postMessage(callbackData);
       channel.close();
-      relayed = true;
     } catch (e) {
       console.log("BroadcastChannel failed:", e);
     }
 
     // Method 3: localStorage event (fallback)
     try {
-      localStorage.setItem("oauth_callback", JSON.stringify({ ...callbackData, timestamp: Date.now() }));
-      relayed = true;
+      localStorage.setItem("oauth_callback:v1", JSON.stringify({ ...callbackData, timestamp: Date.now() }));
     } catch (e) {
       console.log("localStorage failed:", e);
     }
 
-    if (!(code || token || error)) {
-      setTimeout(() => setStatus("manual"), 0);
-      return;
+    const hasAuth = !!(code || token || error);
+    setStatus(hasAuth ? "success" : "manual");
+    if (hasAuth) {
+      closeTimerRef.current = setTimeout(() => {
+        window.close();
+        doneTimerRef.current = setTimeout(() => setStatus("done"), 500);
+      }, 1500);
     }
 
-    setStatus("success");
-    setTimeout(() => {
-      window.close();
-      setTimeout(() => setStatus("done"), 500);
-    }, 1500);
+    return () => {
+      clearTimeout(closeTimerRef.current);
+      clearTimeout(doneTimerRef.current);
+    };
   }, [searchParams]);
 
   return (

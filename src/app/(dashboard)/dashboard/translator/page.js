@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useReducer } from "react";
 import { Card, Button } from "@/shared/components";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import dynamic from "next/dynamic";
@@ -27,33 +27,48 @@ const EDITOR_OPTIONS = {
   automaticLayout: true,
 };
 
+const save = (file, content) => fetch("/api/translator/save", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ file, content })
+}).catch(() => {});
+
+function translatorReducer(state, action) {
+  switch (action.type) {
+    case "SET_CONTENT":
+      return { ...state, contents: { ...state.contents, [action.id]: action.value } };
+    case "SET_LOAD":
+      return { ...state, loading: { ...state.loading, [action.key]: action.value } };
+    case "TOGGLE_EXPANDED":
+      return { ...state, expanded: { ...state.expanded, [action.id]: !state.expanded[action.id] } };
+    case "OPEN_NEXT": {
+      const expanded = {};
+      STEPS.forEach(s => { expanded[s.id] = false; });
+      expanded[action.nextId] = true;
+      return { ...state, expanded };
+    }
+    case "SET_META":
+      return { ...state, meta: action.meta };
+    default:
+      return state;
+  }
+}
+
+const INIT_TRANSLATOR = { contents: {}, expanded: { 1: true }, loading: {}, meta: null };
+
 export default function TranslatorPage() {
-  const [contents, setContents] = useState({});
-  const [expanded, setExpanded] = useState({ 1: true });
-  const [loading, setLoading] = useState({});
-  // Detected from step 1: { provider, model, sourceFormat, targetFormat }
-  const [meta, setMeta] = useState(null);
-
-  const setLoad = (key, val) => setLoading(prev => ({ ...prev, [key]: val }));
-  const setContent = (id, val) => setContents(prev => ({ ...prev, [id]: val }));
-  const toggle = (id) => setExpanded(prev => ({ ...prev, [id]: !prev[id] }));
-
-  const openNext = (nextId) => setExpanded(prev => {
-    const next = {};
-    STEPS.forEach(s => { next[s.id] = false; });
-    next[nextId] = true;
-    return next;
-  });
+  const [state, dispatch] = useReducer(translatorReducer, INIT_TRANSLATOR);
+  const { contents, expanded, loading, meta } = state;
 
   // Load file from logs/translator/
   const handleLoad = async (stepId) => {
     const step = STEPS.find(s => s.id === stepId);
-    setLoad(`load-${stepId}`, true);
+    dispatch({ type: "SET_LOAD", key: `load-${stepId}`, value: true });
     try {
       const res = await fetch(`/api/translator/load?file=${step.file}`);
       const data = await res.json();
       if (data.success) {
-        setContent(stepId, data.content);
+        dispatch({ type: "SET_CONTENT", id: stepId, value: data.content });
         if (stepId === 1) await detectMeta(data.content);
       } else {
         alert(data.error || "File not found");
@@ -61,7 +76,7 @@ export default function TranslatorPage() {
     } catch (e) {
       alert(e.message);
     }
-    setLoad(`load-${stepId}`, false);
+    dispatch({ type: "SET_LOAD", key: `load-${stepId}`, value: false });
   };
 
   // Step 1: detect provider/format from model field
@@ -74,19 +89,13 @@ export default function TranslatorPage() {
         body: JSON.stringify({ step: 1, body })
       });
       const data = await res.json();
-      if (data.success) setMeta(data.result);
+      if (data.success) dispatch({ type: "SET_META", meta: data.result });
     } catch { /* ignore */ }
   };
 
-  const save = (file, content) => fetch("/api/translator/save", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ file, content })
-  }).catch(() => {});
-
   // Step 1 → Step 3: source → OpenAI intermediate
   const handleToOpenAI = async () => {
-    setLoad("toOpenAI", true);
+    dispatch({ type: "SET_LOAD", key: "toOpenAI", value: true });
     try {
       const raw = contents[1];
       const body = JSON.parse(raw);
@@ -102,15 +111,15 @@ export default function TranslatorPage() {
       const data = await res.json();
       if (!data.success) { alert(data.error); return; }
       const str = JSON.stringify(data.result.body, null, 2);
-      setContent(3, str);
-      openNext(3);
+      dispatch({ type: "SET_CONTENT", id: 3, value: str });
+      dispatch({ type: "OPEN_NEXT", nextId: 3 });
     } catch (e) { alert(e.message); }
-    setLoad("toOpenAI", false);
+    dispatch({ type: "SET_LOAD", key: "toOpenAI", value: false });
   };
 
   // Step 3 → Step 4: OpenAI → target + build URL/headers
   const handleToTarget = async () => {
-    setLoad("toTarget", true);
+    dispatch({ type: "SET_LOAD", key: "toTarget", value: true });
     try {
       const raw = contents[3];
       const openaiBody = JSON.parse(raw);
@@ -126,15 +135,15 @@ export default function TranslatorPage() {
       if (!data.success) { alert(data.error); return; }
       // Embed provider + model so Send works even without meta
       const step4Content = { ...data.result, provider: meta?.provider, model: meta?.model };
-      setContent(4, JSON.stringify(step4Content, null, 2));
-      openNext(4);
+      dispatch({ type: "SET_CONTENT", id: 4, value: JSON.stringify(step4Content, null, 2) });
+      dispatch({ type: "OPEN_NEXT", nextId: 4 });
     } catch (e) { alert(e.message); }
-    setLoad("toTarget", false);
+    dispatch({ type: "SET_LOAD", key: "toTarget", value: false });
   };
 
   // Step 4 → Step 5: send to provider via executor
   const handleSend = async () => {
-    setLoad("send", true);
+    dispatch({ type: "SET_LOAD", key: "send", value: true });
     try {
       const raw = contents[4];
       const step4 = JSON.parse(raw);
@@ -166,14 +175,14 @@ export default function TranslatorPage() {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let full = "";
-      while (true) {
+      while (true) { // react-doctor-disable-line react-doctor/async-await-in-loop -- sequential: streaming chunks from reader
         const { done, value } = await reader.read();
         if (done) break;
         full += decoder.decode(value, { stream: true });
       }
 
-      setContent(5, full);
-      openNext(5);
+      dispatch({ type: "SET_CONTENT", id: 5, value: full });
+      dispatch({ type: "OPEN_NEXT", nextId: 5 });
 
       // Save to logs/translator/5_res_provider.txt
       await fetch("/api/translator/save", {
@@ -184,7 +193,7 @@ export default function TranslatorPage() {
     } catch (e) {
       alert(e.message);
     } finally {
-      setLoad("send", false);
+      dispatch({ type: "SET_LOAD", key: "send", value: false });
     }
   };
 
@@ -198,7 +207,7 @@ export default function TranslatorPage() {
   const handleFormat = (id) => {
     try {
       const obj = JSON.parse(contents[id]);
-      setContent(id, JSON.stringify(obj, null, 2));
+      dispatch({ type: "SET_CONTENT", id, value: JSON.stringify(obj, null, 2) });
     } catch { /* not JSON, skip */ }
   };
 
@@ -239,7 +248,7 @@ export default function TranslatorPage() {
             <div className="p-4 space-y-3">
               {/* Step header */}
               <div className="flex items-center justify-between">
-                <button onClick={() => toggle(step.id)} className="flex items-center gap-2 flex-1 text-left group">
+                <button type="button" onClick={() => dispatch({ type: "TOGGLE_EXPANDED", id: step.id })} className="flex items-center gap-2 flex-1 text-left group">
                   <span className="material-symbols-outlined text-[20px] text-text-muted group-hover:text-primary transition-colors">
                     {isExpanded ? "expand_more" : "chevron_right"}
                   </span>
@@ -265,7 +274,7 @@ export default function TranslatorPage() {
                       defaultLanguage={step.lang === "text" ? "plaintext" : "json"}
                       value={content}
                       onChange={(v) => {
-                        setContent(step.id, v || "");
+                        dispatch({ type: "SET_CONTENT", id: step.id, value: v || "" });
                         if (step.id === 1) detectMeta(v || "");
                       }}
                       theme="vs-dark"
@@ -288,15 +297,16 @@ export default function TranslatorPage() {
   );
 }
 
+const META_BADGE_COLORS = {
+  blue: "bg-blue-500/10 text-blue-500",
+  orange: "bg-orange-500/10 text-orange-500",
+  green: "bg-green-500/10 text-green-500",
+  purple: "bg-purple-500/10 text-purple-500",
+};
+
 function MetaBadge({ label, value, color }) {
-  const colors = {
-    blue: "bg-blue-500/10 text-blue-500",
-    orange: "bg-orange-500/10 text-orange-500",
-    green: "bg-green-500/10 text-green-500",
-    purple: "bg-purple-500/10 text-purple-500",
-  };
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono ${colors[color]}`}>
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono ${META_BADGE_COLORS[color]}`}>
       <span className="text-text-muted/70 font-sans text-[10px]">{label}:</span>{value}
     </span>
   );

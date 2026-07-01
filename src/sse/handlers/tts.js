@@ -14,8 +14,7 @@ import * as log from "../utils/logger.js";
 // Derived from providers.js: any TTS provider not noAuth requires stored credentials
 const CREDENTIALED_PROVIDERS = new Set(
   Object.entries(AI_PROVIDERS)
-    .filter(([, p]) => p.serviceKinds?.includes("tts") && !p.noAuth && p.ttsConfig?.authType !== "none")
-    .map(([id]) => id)
+    .flatMap(([id, p]) => p.serviceKinds?.includes("tts") && !p.noAuth && p.ttsConfig?.authType !== "none" ? [id] : [])
 );
 
 export async function handleTts(request) {
@@ -84,6 +83,7 @@ async function handleSingleModelTts(body, modelStr, responseFormat, language) {
   let lastStatus = null;
 
   while (true) {
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential fallback loop, each iteration excludes the previous account
     const credentials = await getProviderCredentials(provider, excludeConnectionIds, model);
 
     if (!credentials || credentials.allRateLimited) {

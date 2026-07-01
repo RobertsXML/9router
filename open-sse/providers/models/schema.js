@@ -1,7 +1,7 @@
 import { deriveModelName } from "./namePatterns.js";
 
 // Model defaults centralized (was scattered as `m.kind || "llm"`, `quotaFamily || "normal"`, etc.)
-export const MODEL_DEFAULTS = {
+const MODEL_DEFAULTS = {
   kind: "llm",
   quotaFamily: "normal",
   strip: [],
@@ -17,7 +17,7 @@ export function normalizeModel(raw) {
 }
 
 // Resolve model kind with default (accepts legacy `type` field)
-export function modelKind(model) {
+function modelKind(model) {
   return model?.kind || model?.type || MODEL_DEFAULTS.kind;
 }
 export function modelQuotaFamily(model) {

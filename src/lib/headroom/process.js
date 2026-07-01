@@ -31,7 +31,7 @@ function clearPid() {
 }
 
 // process.kill throws if pid is dead — use this to probe.
-export function isPidAlive(pid) {
+function isPidAlive(pid) {
   if (!pid || typeof pid !== "number") return false;
   try { process.kill(pid, 0); return true; } catch { return false; }
 }
@@ -118,7 +118,7 @@ export function stopHeadroomProxy() {
   }
 }
 
-export function getHeadroomLogTail(maxLines = 200) {
+function getHeadroomLogTail(maxLines = 200) {
   try {
     if (!fs.existsSync(LOG_FILE)) return "";
     const content = fs.readFileSync(LOG_FILE, "utf8");

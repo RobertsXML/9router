@@ -33,6 +33,7 @@ const MULTI_NL = /\n{3,}/g;
 
 const SESSION_MAX_AGE_MS = 3600_000;
 const SESSION_MAX_ENTRIES = 200;
+const LOCAL_TIMEZONE = typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "UTC";
 
 const sessionCache = new Map();
 
@@ -107,10 +108,12 @@ async function* readPplxSseEvents(body, signal) {
   try {
     while (true) {
       if (signal?.aborted) return;
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: stream chunks must be read in order
       const { value, done } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       while (true) {
+        // eslint-disable-next-line react-doctor/js-set-map-lookups -- string search, not array
         const idx = buffer.indexOf("\n");
         if (idx < 0) break;
         const rawLine = buffer.slice(0, idx);
@@ -144,7 +147,7 @@ function parseOpenAIMessages(messages) {
     let content = "";
     if (typeof msg.content === "string") content = msg.content;
     else if (Array.isArray(msg.content)) {
-      content = msg.content.filter((c) => c.type === "text").map((c) => String(c.text || "")).join(" ");
+      content = msg.content.reduce((acc, c) => { if (c.type === "text") acc.push(String(c.text || "")); return acc; }, []).join(" ");
     }
     if (!content.trim()) continue;
     if (role === "system") systemMsg += content + "\n";
@@ -158,7 +161,6 @@ function parseOpenAIMessages(messages) {
 }
 
 function buildPplxRequestBody(query, mode, modelPref, followUpUuid) {
-  const tz = typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "UTC";
   return {
     query_str: query,
     params: {
@@ -172,7 +174,7 @@ function buildPplxRequestBody(query, mode, modelPref, followUpUuid) {
       frontend_context_uuid: crypto.randomUUID(),
       version: PPLX_API_VERSION,
       language: "en-US",
-      timezone: tz,
+      timezone: LOCAL_TIMEZONE,
       search_recency_filter: null,
       is_incognito: true,
       use_schematized_api: true,
@@ -256,6 +258,7 @@ async function* extractContent(eventStream, signal) {
         }
       }
 
+      // eslint-disable-next-line react-doctor/js-set-map-lookups -- string substring check, not array
       if (!usage.includes("markdown")) continue;
       const mb = block.markdown_block;
       if (!mb) continue;
@@ -502,4 +505,4 @@ export class PerplexityWebExecutor extends BaseExecutor {
 
 export { parseOpenAIMessages, buildQuery, buildPplxRequestBody, formatToolsHint, sessionKey };
 
-export default PerplexityWebExecutor;
+// ponytail: removed unused default export; add back if dynamic import pattern changes

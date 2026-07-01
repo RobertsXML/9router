@@ -57,7 +57,7 @@ export async function GET(request) {
       }
     }
 
-    const languages = Object.values(byLang).sort((a, b) => a.name.localeCompare(b.name));
+    const languages = Object.values(byLang).toSorted((a, b) => a.name.localeCompare(b.name));
 
     // If lang filter requested, return only that group's voices
     if (langFilter) {

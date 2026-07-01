@@ -19,24 +19,24 @@ function colorLine(line) {
   return <span className={color}>{line}</span>;
 }
 
+async function handleClear() {
+  try {
+    await fetch("/api/translator/console-logs", { method: "DELETE" });
+    // UI cleared via SSE "clear" event
+  } catch (err) {
+    console.error("Failed to clear console logs:", err);
+  }
+}
+
 export default function ConsoleLogClient() {
   const [logs, setLogs] = useState([]);
-  const [connected, setConnected] = useState(false);
+  const connectedRef = useRef(false);
   const logRef = useRef(null);
-
-  const handleClear = async () => {
-    try {
-      await fetch("/api/translator/console-logs", { method: "DELETE" });
-      // UI cleared via SSE "clear" event
-    } catch (err) {
-      console.error("Failed to clear console logs:", err);
-    }
-  };
 
   useEffect(() => {
     const es = new EventSource("/api/translator/console-logs/stream");
 
-    es.onopen = () => setConnected(true);
+    es.onopen = () => { connectedRef.current = true; };
 
     es.onmessage = (e) => {
       const msg = JSON.parse(e.data);
@@ -57,7 +57,7 @@ export default function ConsoleLogClient() {
       }
     };
 
-    es.onerror = () => setConnected(false);
+    es.onerror = () => { connectedRef.current = false; };
 
     return () => es.close();
   }, []);
@@ -85,7 +85,7 @@ export default function ConsoleLogClient() {
           ) : (
             <div className="space-y-0.5">
               {logs.map((line, i) => (
-                <div key={i}>{colorLine(line)}</div>
+                <div key={`${line}-${i}`}>{colorLine(line)}</div>
               ))}
             </div>
           )}

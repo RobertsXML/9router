@@ -55,37 +55,41 @@ const getLocaleInfo = (locale) => {
 };
 
 export default function LanguageSwitcher({ className = "", isOpen: controlledOpen, onClose, hideTrigger = false }) {
-  const [locale, setLocale] = useState("en");
+  const [locale, setLocale] = useState(() => getLocaleFromCookie());
   const [isPending, setIsPending] = useState(false);
   const [internalOpen, setInternalOpen] = useState(false);
   const modalRef = useRef(null);
 
   const isControlled = typeof controlledOpen === "boolean";
   const isOpen = isControlled ? controlledOpen : internalOpen;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const localeRef = useRef(locale);
+  localeRef.current = locale;
   const setIsOpen = (value) => {
     if (isControlled) {
-      if (!value && onClose) onClose(locale);
+      if (!value && onCloseRef.current) onCloseRef.current(localeRef.current);
     } else {
       setInternalOpen(value);
     }
   };
 
-  useEffect(() => {
-    setLocale(getLocaleFromCookie());
-  }, []);
-
   // Close modal when clicking outside
   useEffect(() => {
     function handleClickOutside(event) {
       if (modalRef.current && !modalRef.current.contains(event.target)) {
-        setIsOpen(false);
+        if (isControlled) {
+          if (onCloseRef.current) onCloseRef.current(localeRef.current);
+        } else {
+          setInternalOpen(false);
+        }
       }
     }
     if (isOpen) {
       document.addEventListener("mousedown", handleClickOutside);
       return () => document.removeEventListener("mousedown", handleClickOutside);
     }
-  }, [isOpen]);
+  }, [isOpen, isControlled]);
 
   const handleSetLocale = async (nextLocale) => {
     if (nextLocale === locale || isPending) return;
@@ -114,6 +118,7 @@ export default function LanguageSwitcher({ className = "", isOpen: controlledOpe
       {/* Trigger button */}
       {!hideTrigger && (
         <button
+          type="button"
           onClick={() => setIsOpen(!isOpen)}
           disabled={isPending}
           className="flex items-center gap-2 px-3 py-2 rounded-lg text-text-muted hover:text-text-main hover:bg-surface/60 transition-colors"
@@ -130,9 +135,11 @@ export default function LanguageSwitcher({ className = "", isOpen: controlledOpe
       {isOpen && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" data-i18n-skip="true">
           {/* Overlay */}
-          <div
+          <button
+            type="button"
             className="absolute inset-0 bg-black/30 backdrop-blur-sm"
             onClick={() => setIsOpen(false)}
+            aria-label="Close language selector"
           />
 
           {/* Modal content */}
@@ -144,6 +151,7 @@ export default function LanguageSwitcher({ className = "", isOpen: controlledOpe
             <div className="flex items-center justify-between p-3 border-b border-black/5 dark:border-white/5">
               <h2 className="text-lg font-semibold text-text-main">Select Language</h2>
               <button
+                type="button"
                 onClick={() => setIsOpen(false)}
                 className="p-1.5 rounded-lg text-text-muted hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
                 aria-label="Close"
@@ -160,6 +168,7 @@ export default function LanguageSwitcher({ className = "", isOpen: controlledOpe
                   const info = getLocaleInfo(item);
                   return (
                     <button
+                      type="button"
                       key={item}
                       onClick={() => handleSetLocale(item)}
                       disabled={isPending}

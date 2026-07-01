@@ -1,11 +1,12 @@
-import { register } from "../index.js";
+import { register } from "../registry.js";
 import { FORMATS } from "../formats.js";
 import { CLAUDE_SYSTEM_PROMPT } from "../../config/appConstants.js";
 import { adjustMaxTokens } from "../formats/maxTokens.js";
 import { safeParseJSON } from "../concerns/json.js";
 import { parseDataUri } from "../concerns/image.js";
 import { extractTextContent } from "../formats/gemini.js";
-import { ROLE, OPENAI_BLOCK, CLAUDE_BLOCK } from "../schema/index.js";
+import { ROLE } from "../schema/roles.js";
+import { OPENAI_BLOCK, CLAUDE_BLOCK } from "../schema/blocks.js";
 
 // Empty prefix matches real Claude Code behavior (no tool name prefix).
 // Previously "proxy_" was used but this is a detectable fingerprint difference.
@@ -96,10 +97,10 @@ export function openaiToClaudeRequest(model, body, stream) {
       const message = result.messages[i];
       if (message.role === ROLE.ASSISTANT && Array.isArray(message.content) && message.content.length > 0) {
         // Find the last block that can have cache_control (not thinking blocks)
-        const validBlockTypes = [CLAUDE_BLOCK.TEXT, CLAUDE_BLOCK.TOOL_USE, CLAUDE_BLOCK.TOOL_RESULT, CLAUDE_BLOCK.IMAGE];
+        const validBlockTypes = new Set([CLAUDE_BLOCK.TEXT, CLAUDE_BLOCK.TOOL_USE, CLAUDE_BLOCK.TOOL_RESULT, CLAUDE_BLOCK.IMAGE]);
         for (let j = message.content.length - 1; j >= 0; j--) {
           const block = message.content[j];
-          if (validBlockTypes.includes(block.type)) {
+          if (validBlockTypes.has(block.type)) {
             block.cache_control = { type: "ephemeral" };
             break;
           }

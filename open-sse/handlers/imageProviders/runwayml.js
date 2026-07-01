@@ -32,6 +32,7 @@ export default {
     const taskUrl = `${BASE_URL}/tasks/${id}`;
     const deadline = Date.now() + POLL_TIMEOUT_MS;
     while (Date.now() < deadline) {
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential polling loop
       await sleep(POLL_INTERVAL_MS);
       const r = await fetch(taskUrl, { headers });
       if (!r.ok) throw new Error(`Runway status ${r.status}`);

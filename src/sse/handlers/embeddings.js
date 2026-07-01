@@ -85,6 +85,7 @@ export async function handleEmbeddings(request) {
   let lastStatus = null;
 
   while (true) {
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential fallback loop, each iteration excludes the previous account
     const credentials = await getProviderCredentials(provider, excludeConnectionIds, model);
 
     // All accounts unavailable

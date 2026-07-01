@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useReducer, useCallback, useMemo } from "react";
 import { Card, Button, ModelSelectModal, ManualConfigModal } from "@/shared/components";
 import Image from "next/image";
 import BaseUrlSelect from "./BaseUrlSelect";
@@ -8,6 +8,47 @@ import ApiKeySelect from "./ApiKeySelect";
 import { matchKnownEndpoint } from "./cliEndpointMatch";
 
 const ENDPOINT = "/api/cli-tools/hermes-settings";
+
+const normalizeLocalhost = (url) => url.replace("://localhost", "://127.0.0.1");
+
+const getLocalBaseUrl = () => {
+  if (typeof window !== "undefined") {
+    return normalizeLocalhost(window.location.origin);
+  }
+  return "http://127.0.0.1:20128";
+};
+
+const initialState = {
+  hermesStatus: null,
+  checking: false,
+  applying: false,
+  restoring: false,
+  message: null,
+  selectedApiKey: "",
+  selectedModel: "",
+  modalOpen: false,
+  modelAliases: {},
+  showManualConfigModal: false,
+  customBaseUrl: "",
+};
+
+const reducer = (state, action) => {
+  switch (action.type) {
+    case 'setHermesStatus': return { ...state, hermesStatus: action.value };
+    case 'setChecking': return { ...state, checking: action.value };
+    case 'setApplying': return { ...state, applying: action.value };
+    case 'setRestoring': return { ...state, restoring: action.value };
+    case 'setMessage': return { ...state, message: action.value };
+    case 'setSelectedApiKey': return { ...state, selectedApiKey: action.value };
+    case 'setSelectedModel': return { ...state, selectedModel: action.value };
+    case 'setModalOpen': return { ...state, modalOpen: action.value };
+    case 'setModelAliases': return { ...state, modelAliases: action.value };
+    case 'setShowManualConfigModal': return { ...state, showManualConfigModal: action.value };
+    case 'setCustomBaseUrl': return { ...state, customBaseUrl: action.value };
+    case 'reset': return initialState;
+    default: return state;
+  }
+};
 
 export default function HermesToolCard({
   tool,
@@ -24,86 +65,50 @@ export default function HermesToolCard({
   tailscaleEnabled,
   tailscaleUrl,
 }) {
-  const [hermesStatus, setHermesStatus] = useState(initialStatus || null);
-  const [checking, setChecking] = useState(false);
-  const [applying, setApplying] = useState(false);
-  const [restoring, setRestoring] = useState(false);
-  const [message, setMessage] = useState(null);
-  const [selectedApiKey, setSelectedApiKey] = useState("");
-  const [selectedModel, setSelectedModel] = useState("");
-  const [modalOpen, setModalOpen] = useState(false);
-  const [modelAliases, setModelAliases] = useState({});
-  const [showManualConfigModal, setShowManualConfigModal] = useState(false);
-  const [customBaseUrl, setCustomBaseUrl] = useState("");
-  const hasInitializedModel = useRef(false);
+  const [{ hermesStatus, checking, applying, restoring, message, selectedApiKey, selectedModel, modalOpen, modelAliases, showManualConfigModal, customBaseUrl }, dispatch] = useReducer(reducer, initialStatus, (init) => ({
+    ...initialState,
+    hermesStatus: init || null,
+    selectedModel: init?.settings?.model?.default || "",
+  }));
 
-  const getConfigStatus = () => {
+  const configStatus = useMemo(() => {
     if (!hermesStatus?.installed) return null;
     const cfg = hermesStatus.settings?.model;
     if (!cfg?.base_url) return "not_configured";
     if (matchKnownEndpoint(cfg.base_url, { tunnelPublicUrl, tailscaleUrl })) return "configured";
     return "other";
-  };
+  }, [hermesStatus, tunnelPublicUrl, tailscaleUrl]);
 
-  const configStatus = getConfigStatus();
-
-  useEffect(() => {
-    if (apiKeys?.length > 0 && !selectedApiKey) {
-      setSelectedApiKey(apiKeys[0].key);
-    }
-  }, [apiKeys, selectedApiKey]);
-
-  useEffect(() => {
-    if (initialStatus) setHermesStatus(initialStatus);
-  }, [initialStatus]);
-
-  useEffect(() => {
-    if (isExpanded && !hermesStatus) {
-      checkStatus();
-      fetchModelAliases();
-    }
-    if (isExpanded) fetchModelAliases();
-  }, [isExpanded]);
-
-  const fetchModelAliases = async () => {
+  const fetchModelAliases = useCallback(async () => {
     try {
       const res = await fetch("/api/models/alias");
       const data = await res.json();
-      if (res.ok) setModelAliases(data.aliases || {});
+      if (res.ok) dispatch({ type: 'setModelAliases', value: data.aliases || {} });
     } catch (error) {
       console.log("Error fetching model aliases:", error);
     }
-  };
+  }, []);
 
-  useEffect(() => {
-    if (hermesStatus?.installed && !hasInitializedModel.current) {
-      hasInitializedModel.current = true;
-      const cfg = hermesStatus.settings?.model;
-      if (cfg?.default) setSelectedModel(cfg.default);
-    }
-  }, [hermesStatus]);
-
-  const checkStatus = async () => {
-    setChecking(true);
+  const checkStatus = useCallback(async () => {
+    dispatch({ type: 'setChecking', value: true });
     try {
       const res = await fetch(ENDPOINT);
       const data = await res.json();
-      setHermesStatus(data);
+      dispatch({ type: 'setHermesStatus', value: data });
     } catch (error) {
-      setHermesStatus({ installed: false, error: error.message });
+      dispatch({ type: 'setHermesStatus', value: { installed: false, error: error.message } });
     } finally {
-      setChecking(false);
+      dispatch({ type: 'setChecking', value: false });
     }
-  };
+  }, []);
 
-  const normalizeLocalhost = (url) => url.replace("://localhost", "://127.0.0.1");
-
-  const getLocalBaseUrl = () => {
-    if (typeof window !== "undefined") {
-      return normalizeLocalhost(window.location.origin);
+  const handleToggle = useCallback(() => {
+    if (!isExpanded) {
+      if (!hermesStatus) checkStatus();
+      fetchModelAliases();
     }
-    return "http://127.0.0.1:20128";
-  };
+    onToggle();
+  }, [isExpanded, onToggle, hermesStatus, checkStatus, fetchModelAliases]);
 
   const getEffectiveBaseUrl = () => {
     const url = customBaseUrl || getLocalBaseUrl();
@@ -111,8 +116,8 @@ export default function HermesToolCard({
   };
 
   const handleApply = async () => {
-    setApplying(true);
-    setMessage(null);
+    dispatch({ type: 'setApplying', value: true });
+    dispatch({ type: 'setMessage', value: null });
     try {
       const keyToUse = selectedApiKey?.trim()
         || (apiKeys?.length > 0 ? apiKeys[0].key : null)
@@ -129,41 +134,41 @@ export default function HermesToolCard({
       });
       const data = await res.json();
       if (res.ok) {
-        setMessage({ type: "success", text: "Settings applied successfully!" });
+        dispatch({ type: 'setMessage', value: { type: "success", text: "Settings applied successfully!" } });
         checkStatus();
       } else {
-        setMessage({ type: "error", text: data.error || "Failed to apply settings" });
+        dispatch({ type: 'setMessage', value: { type: "error", text: data.error || "Failed to apply settings" } });
       }
     } catch (error) {
-      setMessage({ type: "error", text: error.message });
+      dispatch({ type: 'setMessage', value: { type: "error", text: error.message } });
     } finally {
-      setApplying(false);
+      dispatch({ type: 'setApplying', value: false });
     }
   };
 
   const handleReset = async () => {
-    setRestoring(true);
-    setMessage(null);
+    dispatch({ type: 'setRestoring', value: true });
+    dispatch({ type: 'setMessage', value: null });
     try {
       const res = await fetch(ENDPOINT, { method: "DELETE" });
       const data = await res.json();
       if (res.ok) {
-        setMessage({ type: "success", text: "Settings reset successfully!" });
-        setSelectedModel("");
+        dispatch({ type: 'setMessage', value: { type: "success", text: "Settings reset successfully!" } });
+        dispatch({ type: 'setSelectedModel', value: "" });
         checkStatus();
       } else {
-        setMessage({ type: "error", text: data.error || "Failed to reset settings" });
+        dispatch({ type: 'setMessage', value: { type: "error", text: data.error || "Failed to reset settings" } });
       }
     } catch (error) {
-      setMessage({ type: "error", text: error.message });
+      dispatch({ type: 'setMessage', value: { type: "error", text: error.message } });
     } finally {
-      setRestoring(false);
+      dispatch({ type: 'setRestoring', value: false });
     }
   };
 
   const handleModelSelect = (model) => {
-    setSelectedModel(model.value);
-    setModalOpen(false);
+    dispatch({ type: 'setSelectedModel', value: model.value });
+    dispatch({ type: 'setModalOpen', value: false });
   };
 
   const getManualConfigs = () => {
@@ -182,7 +187,7 @@ export default function HermesToolCard({
 
   return (
     <Card padding="xs" className="overflow-hidden">
-      <div className="flex items-start justify-between gap-3 hover:cursor-pointer sm:items-center" onClick={onToggle}>
+      <button type="button" className="flex items-start justify-between gap-3 hover:cursor-pointer sm:items-center" onClick={handleToggle} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleToggle(); } }}>
         <div className="flex min-w-0 items-center gap-3">
           <div className="size-8 flex items-center justify-center shrink-0">
             <Image src="/providers/hermes.png" alt={tool.name} width={32} height={32} className="size-8 object-contain rounded-lg" sizes="32px" onError={(e) => { e.target.style.display = "none"; }} />
@@ -198,7 +203,7 @@ export default function HermesToolCard({
           </div>
         </div>
         <span className={`material-symbols-outlined text-text-muted text-[20px] transition-transform ${isExpanded ? "rotate-180" : ""}`}>expand_more</span>
-      </div>
+      </button>
 
       {isExpanded && (
         <div className="mt-4 pt-4 border-t border-border flex flex-col gap-4">
@@ -220,7 +225,7 @@ export default function HermesToolCard({
                   </div>
                 </div>
                 <div className="flex flex-col sm:flex-row sm:items-center gap-2 pl-0 sm:pl-9">
-                  <Button variant="secondary" size="sm" onClick={() => setShowManualConfigModal(true)} className="w-full sm:w-auto !bg-yellow-500/20 !border-yellow-500/40 !text-yellow-700 dark:!text-yellow-300 hover:!bg-yellow-500/30">
+                  <Button variant="secondary" size="sm" onClick={() => dispatch({ type: 'setShowManualConfigModal', value: true })} className="w-full sm:w-auto !bg-yellow-500/20 !border-yellow-500/40 !text-yellow-700 dark:!text-yellow-300 hover:!bg-yellow-500/30">
                     <span className="material-symbols-outlined text-[18px] mr-1">content_copy</span>
                     Manual Config
                   </Button>
@@ -237,7 +242,7 @@ export default function HermesToolCard({
                   <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
                   <BaseUrlSelect
                     value={customBaseUrl || getEffectiveBaseUrl()}
-                    onChange={setCustomBaseUrl}
+                    onChange={(v) => dispatch({ type: 'setCustomBaseUrl', value: v })}
                     requiresExternalUrl={tool.requiresExternalUrl}
                     tunnelEnabled={tunnelEnabled}
                     tunnelPublicUrl={tunnelPublicUrl}
@@ -259,17 +264,17 @@ export default function HermesToolCard({
                 <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr_auto] sm:items-center sm:gap-2">
                   <span className="text-xs font-semibold text-text-main sm:text-right sm:text-sm">API Key</span>
                   <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
-                  <ApiKeySelect value={selectedApiKey} onChange={setSelectedApiKey} apiKeys={apiKeys} cloudEnabled={cloudEnabled} />
+                  <ApiKeySelect value={selectedApiKey} onChange={(v) => dispatch({ type: 'setSelectedApiKey', value: v })} apiKeys={apiKeys} cloudEnabled={cloudEnabled} />
                 </div>
 
                 <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr_auto] sm:items-center sm:gap-2">
                   <span className="text-xs font-semibold text-text-main sm:text-right sm:text-sm">Default Model</span>
                   <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
                   <div className="relative w-full min-w-0">
-                    <input type="text" value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)} placeholder="provider/model-id" className="w-full min-w-0 pl-2 pr-7 py-2 bg-surface rounded border border-border text-xs focus:outline-none focus:ring-1 focus:ring-primary/50 sm:py-1.5" />
-                    {selectedModel && <button onClick={() => setSelectedModel("")} className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-text-muted hover:text-red-500 rounded transition-colors" title="Clear"><span className="material-symbols-outlined text-[14px]">close</span></button>}
+                    <input type="text" value={selectedModel} onChange={(e) => dispatch({ type: 'setSelectedModel', value: e.target.value })} placeholder="provider/model-id" aria-label="Model ID" className="w-full min-w-0 pl-2 pr-7 py-2 bg-surface rounded border border-border text-xs focus:outline-none focus:ring-1 focus:ring-primary/50 sm:py-1.5" />
+                    {selectedModel && <button type="button" onClick={() => dispatch({ type: 'setSelectedModel', value: "" })} className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-text-muted hover:text-red-500 rounded transition-colors" title="Clear"><span className="material-symbols-outlined text-[14px]">close</span></button>}
                   </div>
-                  <button onClick={() => setModalOpen(true)} disabled={!hasActiveProviders} className={`w-full sm:w-auto rounded border px-2 py-2 text-xs transition-colors sm:py-1.5 whitespace-nowrap sm:shrink-0 ${hasActiveProviders ? "bg-surface border-border text-text-main hover:border-primary cursor-pointer" : "opacity-50 cursor-not-allowed border-border"}`}>Select</button>
+                  <button type="button" onClick={() => dispatch({ type: 'setModalOpen', value: true })} disabled={!hasActiveProviders} className={`w-full sm:w-auto rounded border px-2 py-2 text-xs transition-colors sm:py-1.5 whitespace-nowrap sm:shrink-0 ${hasActiveProviders ? "bg-surface border-border text-text-main hover:border-primary cursor-pointer" : "opacity-50 cursor-not-allowed border-border"}`}>Select</button>
                 </div>
               </div>
 
@@ -287,7 +292,7 @@ export default function HermesToolCard({
                 <Button variant="outline" size="sm" onClick={handleReset} disabled={!hermesStatus?.has9Router} loading={restoring} className="w-full sm:w-auto">
                   <span className="material-symbols-outlined text-[14px] mr-1">restore</span>Reset
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => setShowManualConfigModal(true)} className="w-full sm:w-auto">
+                <Button variant="ghost" size="sm" onClick={() => dispatch({ type: 'setShowManualConfigModal', value: true })} className="w-full sm:w-auto">
                   <span className="material-symbols-outlined text-[14px] mr-1">content_copy</span>Manual Config
                 </Button>
               </div>
@@ -298,7 +303,7 @@ export default function HermesToolCard({
 
       <ModelSelectModal
         isOpen={modalOpen}
-        onClose={() => setModalOpen(false)}
+        onClose={() => dispatch({ type: 'setModalOpen', value: false })}
         onSelect={handleModelSelect}
         selectedModel={selectedModel}
         activeProviders={activeProviders}
@@ -308,7 +313,7 @@ export default function HermesToolCard({
 
       <ManualConfigModal
         isOpen={showManualConfigModal}
-        onClose={() => setShowManualConfigModal(false)}
+        onClose={() => dispatch({ type: 'setShowManualConfigModal', value: false })}
         title="Hermes Agent - Manual Configuration"
         configs={getManualConfigs()}
       />

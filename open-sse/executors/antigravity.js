@@ -598,4 +598,4 @@ const AG_DECOY_TOOLS = [
   }
 ];
 
-export default AntigravityExecutor;
+// ponytail: removed unused default export; add back if dynamic import pattern changes

@@ -1,34 +1,65 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState, useReducer } from "react";
+import Image from "next/image";
 import Modal from "./Modal";
 
 const REGISTRY_ENDPOINT = "/api/cli-tools/cowork-mcp-registry";
 const TOOLS_ENDPOINT = "/api/cli-tools/cowork-mcp-tools";
+const EMPTY_NAMES = [];
 
-export default function McpMarketplaceModal({ isOpen, onClose, onAdd, addedNames = [] }) {
-  const [servers, setServers] = useState([]);
-  const [loading, setLoading] = useState(false);
+function fetchReducer(state, action) {
+  switch (action.type) {
+    case 'FETCH_START': return { ...state, loading: true, error: null };
+    case 'FETCH_SUCCESS': return { ...state, loading: false, error: null, servers: action.payload };
+    case 'FETCH_ERROR': return { ...state, loading: false, error: action.payload };
+    default: return state;
+  }
+}
+
+function toolsReducer(state, action) {
+  switch (action.type) {
+    case 'SET_LOADING': return { ...state, toolsLoading: { ...state.toolsLoading, [action.url]: action.payload } };
+    case 'SET_CACHE': return { ...state, toolsCache: { ...state.toolsCache, [action.url]: action.payload } };
+    case 'SET_SELECTION': return { ...state, toolSelection: { ...state.toolSelection, [action.url]: action.payload } };
+    case 'UPDATE_SELECTION': return { ...state, toolSelection: { ...state.toolSelection, [action.url]: { ...state.toolSelection[action.url], [action.tool]: !state.toolSelection[action.url]?.[action.tool] } } };
+    case 'SET_ALL': {
+      const sel = state.toolSelection[action.url] || {};
+      return { ...state, toolSelection: { ...state.toolSelection, [action.url]: Object.fromEntries(Object.keys(sel).map((t) => [t, action.value])) } };
+    }
+    default: return state;
+  }
+}
+
+export default function McpMarketplaceModal({ isOpen, onClose, onAdd, addedNames = EMPTY_NAMES }) {
+  const [{ servers, loading, error }, dispatchFetch] = useReducer(fetchReducer, {
+    servers: [],
+    loading: false,
+    error: null,
+  });
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
-  const [error, setError] = useState(null);
   const [expandedUrl, setExpandedUrl] = useState(null);
-  const [toolsCache, setToolsCache] = useState({});
-  const [toolsLoading, setToolsLoading] = useState({});
-  const [toolSelection, setToolSelection] = useState({});
+  const [erroredIcons, setErroredIcons] = useState(new Set());
+  const [{ toolsCache, toolsLoading, toolSelection }, dispatchTools] = useReducer(toolsReducer, { toolsCache: {}, toolsLoading: {}, toolSelection: {} });
 
-  useEffect(() => {
-    if (!isOpen) return;
-    if (servers.length > 0) return;
-    setLoading(true);
-    fetch(REGISTRY_ENDPOINT)
+  const doFetchRegistry = useEffectEvent((controller) => {
+    dispatchFetch({ type: 'FETCH_START' });
+    fetch(REGISTRY_ENDPOINT, { signal: controller.signal })
       .then((r) => r.json())
       .then((d) => {
-        if (d.error) setError(d.error);
-        else setServers(d.servers || []);
+        if (!controller.signal.aborted) {
+          if (d.error) dispatchFetch({ type: 'FETCH_ERROR', payload: d.error });
+          else dispatchFetch({ type: 'FETCH_SUCCESS', payload: d.servers || [] });
+        }
       })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+      .catch((e) => { if (!controller.signal.aborted && e.name !== "AbortError") dispatchFetch({ type: 'FETCH_ERROR', payload: e.message }); });
+  });
+  useEffect(() => {
+    if (!isOpen) return;
+    const controller = new AbortController();
+    doFetchRegistry(controller);
+    return () => controller.abort();
   }, [isOpen]);
 
   const addedSet = useMemo(() => new Set(addedNames), [addedNames]);
@@ -49,7 +80,7 @@ export default function McpMarketplaceModal({ isOpen, onClose, onAdd, addedNames
 
   const fetchTools = async (server) => {
     if (toolsCache[server.url]) return;
-    setToolsLoading((p) => ({ ...p, [server.url]: true }));
+    dispatchTools({ type: 'SET_LOADING', url: server.url, payload: true });
     try {
       const r = await fetch(TOOLS_ENDPOINT, {
         method: "POST",
@@ -60,13 +91,13 @@ export default function McpMarketplaceModal({ isOpen, onClose, onAdd, addedNames
       const tools = d.tools || [];
       const fallback = Array.isArray(server.toolNames) ? server.toolNames : [];
       const toolNames = tools.length > 0 ? tools.map((t) => t.name) : fallback;
-      setToolsCache((p) => ({ ...p, [server.url]: { tools, requiresAuth: !!d.requiresAuth, error: d.error } }));
+      dispatchTools({ type: 'SET_CACHE', url: server.url, payload: { tools, requiresAuth: !!d.requiresAuth, error: d.error } });
       // Default: all checked
-      setToolSelection((p) => ({ ...p, [server.url]: Object.fromEntries(toolNames.map((t) => [t, true])) }));
+      dispatchTools({ type: 'SET_SELECTION', url: server.url, payload: Object.fromEntries(toolNames.map((t) => [t, true])) });
     } catch (e) {
-      setToolsCache((p) => ({ ...p, [server.url]: { tools: [], error: e.message } }));
+      dispatchTools({ type: 'SET_CACHE', url: server.url, payload: { tools: [], error: e.message } });
     } finally {
-      setToolsLoading((p) => ({ ...p, [server.url]: false }));
+      dispatchTools({ type: 'SET_LOADING', url: server.url, payload: false });
     }
   };
 
@@ -80,12 +111,11 @@ export default function McpMarketplaceModal({ isOpen, onClose, onAdd, addedNames
   };
 
   const toggleTool = (url, tool) => {
-    setToolSelection((prev) => ({ ...prev, [url]: { ...prev[url], [tool]: !prev[url]?.[tool] } }));
+    dispatchTools({ type: 'UPDATE_SELECTION', url, tool });
   };
 
   const setAllTools = (url, value) => {
-    const sel = toolSelection[url] || {};
-    setToolSelection((prev) => ({ ...prev, [url]: Object.fromEntries(Object.keys(sel).map((t) => [t, value])) }));
+    dispatchTools({ type: 'SET_ALL', url, value });
   };
 
   const confirmAdd = (server) => {
@@ -112,11 +142,13 @@ export default function McpMarketplaceModal({ isOpen, onClose, onAdd, addedNames
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by name or description..."
+            aria-label="Search MCP servers"
             className="flex-1 px-2 py-1.5 bg-surface rounded text-xs border border-border focus:outline-none focus:ring-1 focus:ring-primary/50"
           />
           <select
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
+            aria-label="Filter servers"
             className="px-2 py-1.5 bg-surface rounded text-xs border border-border focus:outline-none focus:ring-1 focus:ring-primary/50"
           >
             <option value="all">All</option>
@@ -152,9 +184,8 @@ export default function McpMarketplaceModal({ isOpen, onClose, onAdd, addedNames
               return (
                 <div key={s.url} className="rounded border border-transparent hover:border-border">
                   <div className="flex items-start gap-2 px-2 py-2 hover:bg-black/5 dark:hover:bg-white/5">
-                    {s.iconUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={s.iconUrl} alt="" className="size-7 rounded shrink-0 object-contain" onError={(e) => { e.target.style.display = "none"; }} />
+                    {s.iconUrl && !erroredIcons.has(s.iconUrl) ? (
+                      <Image src={s.iconUrl} alt="" width={28} height={28} className="size-7 rounded shrink-0 object-contain" unoptimized onError={() => setErroredIcons(prev => new Set(prev).add(s.iconUrl))} />
                     ) : (
                       <div className="size-7 rounded bg-surface shrink-0" />
                     )}
@@ -175,6 +206,7 @@ export default function McpMarketplaceModal({ isOpen, onClose, onAdd, addedNames
                       )}
                     </div>
                     <button
+                      type="button"
                       onClick={() => added ? null : expandServer(s)}
                       disabled={added}
                       className={`shrink-0 px-2 py-1 rounded text-[10px] font-medium transition-colors ${
@@ -198,7 +230,7 @@ export default function McpMarketplaceModal({ isOpen, onClose, onAdd, addedNames
                       )}
                       {!isLoadingTools && cache?.requiresAuth && (
                         <p className="text-[10px] text-amber-600 bg-amber-500/10 px-2 py-1 rounded">
-                          🔐 OAuth required. Add now and authenticate after Apply; tool list will be discovered after first connect.
+                          OAuth required. Add now and authenticate after Apply; tool list will be discovered after first connect.
                         </p>
                       )}
                       {!isLoadingTools && cache?.error && !cache?.requiresAuth && (
@@ -212,9 +244,9 @@ export default function McpMarketplaceModal({ isOpen, onClose, onAdd, addedNames
                           <div className="flex items-center justify-between">
                             <span className="text-[10px] text-text-muted">{selectedCount}/{toolKeys.length} tools enabled</span>
                             <div className="flex gap-1">
-                              <button onClick={() => setAllTools(s.url, true)} className="text-[10px] text-primary hover:underline">All</button>
-                              <span className="text-[10px] text-text-muted">·</span>
-                              <button onClick={() => setAllTools(s.url, false)} className="text-[10px] text-primary hover:underline">None</button>
+                              <button type="button" onClick={() => setAllTools(s.url, true)} className="text-[10px] text-primary hover:underline">All</button>
+                              <span className="text-[10px] text-text-muted">.</span>
+                              <button type="button" onClick={() => setAllTools(s.url, false)} className="text-[10px] text-primary hover:underline">None</button>
                             </div>
                           </div>
                           <div className="grid grid-cols-2 gap-1 max-h-40 overflow-y-auto">
@@ -233,10 +265,11 @@ export default function McpMarketplaceModal({ isOpen, onClose, onAdd, addedNames
                         </>
                       )}
                       <button
+                        type="button"
                         onClick={() => confirmAdd(s)}
                         className="self-end px-2 py-1 rounded text-[10px] font-medium bg-primary text-white hover:bg-primary/90"
                       >
-                        ✓ Confirm Add
+                        Confirm Add
                       </button>
                     </div>
                   )}

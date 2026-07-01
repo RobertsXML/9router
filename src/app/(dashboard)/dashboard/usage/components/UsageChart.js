@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import PropTypes from "prop-types";
-import {
+import { // eslint-disable-line react-doctor/prefer-dynamic-import -- recharts is tree-shaken, dynamic import adds loading state complexity
   AreaChart,
   Area,
   XAxis,
@@ -23,22 +23,23 @@ const fmtTokens = (n) => {
 const fmtCost = (n) => `$${(n || 0).toFixed(4)}`;
 
 export default function UsageChart({ period = "7d" }) {
-  const [data, setData] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // eslint-disable-next-line react-doctor/no-derived-state -- data is populated from API fetch in fetchData, not derived from other state
+  const [data, setData] = useState(null);
   const [viewMode, setViewMode] = useState("tokens");
 
   const fetchData = useCallback(async () => {
-    setLoading(true);
+    setData(null);
     try {
       const res = await fetch(`/api/usage/chart?period=${period}`);
       if (res.ok) {
         const json = await res.json();
         setData(json);
+      } else {
+        setData([]);
       }
     } catch (e) {
       console.error("Failed to fetch chart data:", e);
-    } finally {
-      setLoading(false);
+      setData([]);
     }
   }, [period]);
 
@@ -46,18 +47,21 @@ export default function UsageChart({ period = "7d" }) {
     fetchData();
   }, [fetchData]);
 
-  const hasData = data.some((d) => d.tokens > 0 || d.cost > 0);
+  const loading = data === null;
+  const hasData = useMemo(() => data !== null && data.some((d) => d.tokens > 0 || d.cost > 0), [data]);
 
   return (
     <Card className="flex min-w-0 flex-col gap-3 p-3 sm:p-4">
       <div className="grid w-full grid-cols-2 items-center gap-1 rounded-lg border border-border bg-bg-subtle p-1 sm:w-auto sm:self-start">
         <button
+          type="button"
           onClick={() => setViewMode("tokens")}
           className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${viewMode === "tokens" ? "bg-primary text-white shadow-sm" : "text-text-muted hover:text-text hover:bg-bg-hover"}`}
         >
           Tokens
         </button>
         <button
+          type="button"
           onClick={() => setViewMode("cost")}
           className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${viewMode === "cost" ? "bg-primary text-white shadow-sm" : "text-text-muted hover:text-text hover:bg-bg-hover"}`}
         >

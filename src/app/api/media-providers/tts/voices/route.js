@@ -90,7 +90,7 @@ export async function GET(request) {
     }
 
     // Sorted language list
-    const languages = Object.values(byLang).sort((a, b) => a.name.localeCompare(b.name));
+    const languages = Object.values(byLang).toSorted((a, b) => a.name.localeCompare(b.name));
 
     return NextResponse.json({ voices, languages, byLang });
   } catch (err) {

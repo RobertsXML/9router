@@ -44,8 +44,14 @@ export default function RequestLogger() {
         <div className="flex items-center gap-2">
           <label className="text-sm font-medium text-text-muted flex items-center gap-2 cursor-pointer">
             <span>Auto Refresh (3s)</span>
+            <input
+              type="checkbox"
+              checked={autoRefresh}
+              onChange={() => setAutoRefresh(!autoRefresh)}
+              className="sr-only"
+            />
             <div
-              onClick={() => setAutoRefresh(!autoRefresh)}
+              aria-hidden="true"
               className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${autoRefresh ? "bg-primary" : "bg-bg-subtle border border-border"
                 }`}
             >
@@ -88,7 +94,7 @@ export default function RequestLogger() {
                   const isSuccess = status.includes("OK");
 
                   return (
-                    <tr key={i} className={`hover:bg-primary/5 transition-colors ${isPending ? 'bg-primary/5' : ''}`}>
+                    <tr key={`${parts[0]}-${parts[1]}-${parts[3]}`} className={`hover:bg-primary/5 transition-colors ${isPending ? 'bg-primary/5' : ''}`}>
                       <td className="px-3 py-1.5 border-r border-border text-text-muted">{parts[0]}</td>
                       <td className="px-3 py-1.5 border-r border-border font-medium">{parts[1]}</td>
                       <td className="px-3 py-1.5 border-r border-border">

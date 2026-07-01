@@ -61,7 +61,7 @@ describe("request normalization", () => {
       ],
     };
 
-    const result = filterToOpenAIFormat(JSON.parse(JSON.stringify(body)));
+    const result = filterToOpenAIFormat(structuredClone(body));
     expect(result.messages[0].content).toBe("a\nb");
   });
 
@@ -85,7 +85,7 @@ describe("request normalization", () => {
       FORMATS.CLAUDE,
       FORMATS.OPENAI,
       "gpt-oss:120b",
-      JSON.parse(JSON.stringify(body)),
+      structuredClone(body),
       true,
       null,
       "ollama",
@@ -125,7 +125,7 @@ describe("request normalization", () => {
       FORMATS.CLAUDE,
       FORMATS.CLAUDE,
       "MiniMax-M2.7",
-      JSON.parse(JSON.stringify(body)),
+      structuredClone(body),
       true,
       null,
       "minimax",
@@ -155,7 +155,7 @@ describe("request normalization", () => {
       FORMATS.CLAUDE,
       FORMATS.CLAUDE,
       "claude-sonnet-4.5",
-      JSON.parse(JSON.stringify(body)),
+      structuredClone(body),
       true,
       null,
       "claude",

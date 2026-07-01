@@ -42,6 +42,7 @@ export default {
     const pollUrl = `${POLL_BASE}?taskId=${encodeURIComponent(taskId)}`;
     const deadline = Date.now() + POLL_TIMEOUT_MS;
     while (Date.now() < deadline) {
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential polling loop
       await sleep(POLL_INTERVAL_MS);
       const r = await fetch(pollUrl, { headers });
       if (!r.ok) throw new Error(`NanoBanana status ${r.status}`);

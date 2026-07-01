@@ -13,6 +13,7 @@ import {
   initDbHooks,
 } from "@/mitm/manager";
 import { getSettings, updateSettings } from "@/lib/localDb";
+import { withLocalAuth } from "@/app/api/_lib/auth";
 
 initDbHooks(getSettings, updateSettings);
 
@@ -65,7 +66,7 @@ function checkPrivilege(pwd) {
 }
 
 // GET - Full MITM status (server + per-tool DNS)
-export async function GET() {
+export const GET = withLocalAuth(async () => {
   try {
     const status = await getMitmStatus();
     const settings = await getSettings();
@@ -88,10 +89,10 @@ export async function GET() {
     console.log("Error getting MITM status:", error.message);
     return NextResponse.json({ error: "Failed to get MITM status" }, { status: 500 });
   }
-}
+});
 
 // POST - Start MITM server (cert + server, no DNS)
-export async function POST(request) {
+export const POST = withLocalAuth(async (request) => {
   try {
     const { apiKey, sudoPassword, mitmRouterBaseUrl, forceKillPort443 } = await request.json();
     const pwd = getPassword(sudoPassword) || await loadEncryptedPassword() || "";
@@ -136,10 +137,10 @@ export async function POST(request) {
     }
     return NextResponse.json({ error: error.message || "Failed to start MITM server" }, { status: 500 });
   }
-}
+});
 
 // DELETE - Stop MITM server (removes all DNS first, then kills server)
-export async function DELETE(request) {
+export const DELETE = withLocalAuth(async (request) => {
   try {
     const body = await request.json().catch(() => ({}));
     const { sudoPassword } = body;
@@ -157,10 +158,10 @@ export async function DELETE(request) {
     console.log("Error stopping MITM server:", error.message);
     return NextResponse.json({ error: error.message || "Failed to stop MITM server" }, { status: 500 });
   }
-}
+});
 
 // PATCH - Toggle DNS for a specific tool (enable/disable)
-export async function PATCH(request) {
+export const PATCH = withLocalAuth(async (request) => {
   try {
     const { tool, action, sudoPassword } = await request.json();
     const pwd = getPassword(sudoPassword) || await loadEncryptedPassword() || "";
@@ -199,4 +200,4 @@ export async function PATCH(request) {
     console.log("Error toggling DNS:", error.message);
     return NextResponse.json({ error: error.message || "Failed to toggle DNS" }, { status: 500 });
   }
-}
+});

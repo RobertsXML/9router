@@ -2,19 +2,21 @@
 
 import { cn } from "@/shared/utils/cn";
 
+const sizes = {
+  sm: "h-7 text-xs",
+  md: "h-9 text-sm",
+  lg: "h-11 text-base",
+};
+
+const EMPTY_OPTIONS = [];
+
 export default function SegmentedControl({
-  options = [],
+  options = EMPTY_OPTIONS,
   value,
   onChange,
   size = "md",
   className,
 }) {
-  const sizes = {
-    sm: "h-7 text-xs",
-    md: "h-9 text-sm",
-    lg: "h-11 text-base",
-  };
-
   return (
     <div
       className={cn(
@@ -25,6 +27,7 @@ export default function SegmentedControl({
     >
       {options.map((option) => (
         <button
+          type="button"
           key={option.value}
           onClick={() => onChange(option.value)}
           className={cn(

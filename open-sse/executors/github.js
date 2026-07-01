@@ -68,7 +68,7 @@ export class GithubExecutor extends BaseExecutor {
         }
         
         // Also prepend to the last user message as a reminder
-        const lastUserIdx = body.messages.map((m, i) => m.role === 'user' ? i : -1).filter(i => i >= 0).pop();
+        let lastUserIdx = -1; for (let i = 0; i < body.messages.length; i++) { if (body.messages[i].role === 'user') lastUserIdx = i; }
         if (lastUserIdx >= 0) {
           const userMsg = body.messages[lastUserIdx];
           const userContent = typeof userMsg.content === 'string' ? userMsg.content : JSON.stringify(userMsg.content);
@@ -85,15 +85,14 @@ export class GithubExecutor extends BaseExecutor {
 
       // Array content: filter/convert unsupported part types
       if (Array.isArray(msg.content)) {
-        const cleanContent = msg.content
-          .map(part => {
-            if (part.type === "text") return part;
-            if (part.type === "image_url") return part;
-            // Serialize tool_use, tool_result, thinking, etc. as text
-            const text = part.text || part.content || JSON.stringify(part);
-            return { type: "text", text: typeof text === "string" ? text : JSON.stringify(text) };
-          })
-          .filter(part => part.text !== ""); // remove empty text parts
+        const cleanContent = [];
+        for (const part of msg.content) {
+          let converted;
+          if (part.type === "text") converted = part;
+          else if (part.type === "image_url") converted = part;
+          else { const text = part.text || part.content || JSON.stringify(part); converted = { type: "text", text: typeof text === "string" ? text : JSON.stringify(text) }; }
+          if (converted.text !== "") cleanContent.push(converted);
+        }
 
         // If all content was stripped (e.g. only tool_result with no text), drop content
         return { ...msg, content: cleanContent.length > 0 ? cleanContent : null };
@@ -342,4 +341,4 @@ export class GithubExecutor extends BaseExecutor {
   }
 }
 
-export default GithubExecutor;
+// ponytail: removed unused default export; add back if dynamic import pattern changes

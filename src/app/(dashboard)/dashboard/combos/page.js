@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useReducer } from "react";
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -12,15 +12,45 @@ import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/sha
 // Validate combo name: only a-z, A-Z, 0-9, -, _
 const VALID_NAME_REGEX = /^[a-zA-Z0-9_.\-]+$/;
 
+function combosReducer(state, action) {
+  switch (action.type) {
+    case "FETCH_SUCCESS":
+      return {
+        ...state,
+        loading: false,
+        combos: action.combos,
+        activeProviders: action.activeProviders,
+        comboStrategies: action.comboStrategies,
+        modelCaps: action.modelCaps,
+      };
+    case "FETCH_ERROR":
+      return { ...state, loading: false };
+    case "SET_UI":
+      return { ...state, ...action.payload };
+    case "DELETE_COMBO":
+      return { ...state, combos: state.combos.filter(c => c.id !== action.id) };
+    case "SET_STRATEGIES":
+      return { ...state, comboStrategies: action.comboStrategies };
+    default:
+      return state;
+  }
+}
+
+const INIT_COMBOS = {
+  combos: [],
+  loading: true,
+  showCreateModal: false,
+  editingCombo: null,
+  activeProviders: [],
+  comboStrategies: {},
+  modelCaps: {},
+  modelAliases: {},
+  confirmState: null,
+};
+
 export default function CombosPage() {
-  const [combos, setCombos] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [editingCombo, setEditingCombo] = useState(null);
-  const [activeProviders, setActiveProviders] = useState([]);
-  const [comboStrategies, setComboStrategies] = useState({});
-  const [modelCaps, setModelCaps] = useState({});
-  const [confirmState, setConfirmState] = useState(null);
+  const [state, dispatch] = useReducer(combosReducer, INIT_COMBOS);
+  const { combos, loading, showCreateModal, editingCombo, activeProviders, comboStrategies, modelCaps, modelAliases, confirmState } = state;
   const { copied, copy } = useCopyToClipboard();
 
   useEffect(() => {
@@ -35,28 +65,41 @@ export default function CombosPage() {
         fetch("/api/settings"),
         fetch("/api/models"),
       ]);
-      const combosData = await combosRes.json();
-      const providersData = await providersRes.json();
-      const settingsData = settingsRes.ok ? await settingsRes.json() : {};
-      
+      const [combosData, providersData, settingsData] = await Promise.all([
+        combosRes.json(),
+        providersRes.json(),
+        settingsRes.ok ? settingsRes.json() : Promise.resolve({}),
+      ]);
+
       // Only LLM combos here - webSearch/webFetch combos belong to media-providers/web
-      if (combosRes.ok) setCombos((combosData.combos || []).filter(c => !c.kind || c.kind === "llm"));
-      if (providersRes.ok) {
-        setActiveProviders(providersData.connections || []);
-      }
+      let modelCapsMap = {};
       if (modelsRes.ok) {
         const md = await modelsRes.json();
-        // Build fullModel -> caps map for badge lookup
-        const map = {};
-        for (const m of md.models || []) if (m.caps) map[m.fullModel] = m.caps;
-        setModelCaps(map);
+        for (const m of md.models || []) if (m.caps) modelCapsMap[m.fullModel] = m.caps;
       }
-      setComboStrategies(settingsData.comboStrategies || {});
+      dispatch({
+        type: "FETCH_SUCCESS",
+        combos: combosRes.ok ? (combosData.combos || []).filter(c => !c.kind || c.kind === "llm") : [],
+        activeProviders: providersRes.ok ? (providersData.connections || []) : [],
+        comboStrategies: settingsData.comboStrategies || {},
+        modelCaps: modelCapsMap,
+      });
     } catch (error) {
       console.log("Error fetching data:", error);
-    } finally {
-      setLoading(false);
+      dispatch({ type: "FETCH_ERROR" });
     }
+  };
+
+  const openCreateModal = () => {
+    fetch("/api/models/alias").then(r => r.ok ? r.json() : null).then(d => {
+      dispatch({ type: "SET_UI", payload: { showCreateModal: true, modelAliases: d?.aliases || {} } });
+    }).catch(() => dispatch({ type: "SET_UI", payload: { showCreateModal: true, modelAliases: {} } }));
+  };
+
+  const openEditModal = (combo) => {
+    fetch("/api/models/alias").then(r => r.ok ? r.json() : null).then(d => {
+      dispatch({ type: "SET_UI", payload: { editingCombo: combo, modelAliases: d?.aliases || {} } });
+    }).catch(() => dispatch({ type: "SET_UI", payload: { editingCombo: combo, modelAliases: {} } }));
   };
 
   const handleCreate = async (data) => {
@@ -68,7 +111,7 @@ export default function CombosPage() {
       });
       if (res.ok) {
         await fetchData();
-        setShowCreateModal(false);
+        dispatch({ type: "SET_UI", payload: { showCreateModal: false } });
       } else {
         const err = await res.json();
         alert(err.error || "Failed to create combo");
@@ -87,7 +130,7 @@ export default function CombosPage() {
       });
       if (res.ok) {
         await fetchData();
-        setEditingCombo(null);
+        dispatch({ type: "SET_UI", payload: { editingCombo: null } });
       } else {
         const err = await res.json();
         alert(err.error || "Failed to update combo");
@@ -98,20 +141,23 @@ export default function CombosPage() {
   };
 
   const handleDelete = async (id) => {
-    setConfirmState({
-      title: "Delete Combo",
-      message: "Delete this combo?",
-      onConfirm: async () => {
-        setConfirmState(null);
-        try {
-          const res = await fetch(`/api/combos/${id}`, { method: "DELETE" });
-          if (res.ok) {
-            setCombos(combos.filter(c => c.id !== id));
-          }
-        } catch (error) {
-          console.log("Error deleting combo:", error);
-        }
-      }
+    dispatch({
+      type: "SET_UI",
+      payload: {
+        confirmState: {
+          title: "Delete Combo",
+          message: "Delete this combo?",
+          onConfirm: async () => {
+            dispatch({ type: "SET_UI", payload: { confirmState: null } });
+            try {
+              const res = await fetch(`/api/combos/${id}`, { method: "DELETE" });
+              if (res.ok) dispatch({ type: "DELETE_COMBO", id });
+            } catch (error) {
+              console.log("Error deleting combo:", error);
+            }
+          },
+        },
+      },
     });
   };
 
@@ -134,7 +180,7 @@ export default function CombosPage() {
         body: JSON.stringify({ comboStrategies: updated }),
       });
 
-      setComboStrategies(updated);
+      dispatch({ type: "SET_STRATEGIES", comboStrategies: updated });
     } catch (error) {
       console.log("Error updating combo strategy:", error);
     }
@@ -164,7 +210,7 @@ export default function CombosPage() {
             <li><span className="font-medium text-text-main">Capacity auto-switch</span> — sends image/PDF/audio requests to a model that supports them first</li>
           </ul>
         </div>
-        <Button icon="add" onClick={() => setShowCreateModal(true)} className="w-full sm:w-auto whitespace-nowrap">
+        <Button icon="add" onClick={openCreateModal} className="w-full sm:w-auto whitespace-nowrap">
           Create Combo
         </Button>
       </div>
@@ -178,7 +224,7 @@ export default function CombosPage() {
             </div>
             <p className="text-text-main font-medium mb-1">No combos yet</p>
             <p className="text-sm text-text-muted mb-4">Create model combos with fallback support</p>
-            <Button icon="add" onClick={() => setShowCreateModal(true)} className="w-full sm:w-auto">
+            <Button icon="add" onClick={openCreateModal} className="w-full sm:w-auto">
               Create Combo
             </Button>
           </div>
@@ -193,7 +239,7 @@ export default function CombosPage() {
               activeProviders={activeProviders}
               copied={copied}
               onCopy={copy}
-              onEdit={() => setEditingCombo(combo)}
+              onEdit={() => openEditModal(combo)}
               onDelete={() => handleDelete(combo.id)}
               strategy={comboStrategies[combo.name] || {}}
               onSetStrategy={(patch) => handleSetComboStrategy(combo.name, patch)}
@@ -206,9 +252,10 @@ export default function CombosPage() {
       <ComboFormModal
         key="create"
         isOpen={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
+        onClose={() => dispatch({ type: "SET_UI", payload: { showCreateModal: false } })}
         onSave={handleCreate}
         activeProviders={activeProviders}
+        modelAliases={modelAliases}
       />
 
       {/* Edit Modal - Use key to force remount and reset state */}
@@ -216,15 +263,16 @@ export default function CombosPage() {
         key={editingCombo?.id || "new"}
         isOpen={!!editingCombo}
         combo={editingCombo}
-        onClose={() => setEditingCombo(null)}
+        onClose={() => dispatch({ type: "SET_UI", payload: { editingCombo: null } })}
         onSave={(data) => handleUpdate(editingCombo.id, data)}
         activeProviders={activeProviders}
+        modelAliases={modelAliases}
       />
 
       {/* Confirm Delete Modal */}
       <ConfirmModal
         isOpen={!!confirmState}
-        onClose={() => setConfirmState(null)}
+        onClose={() => dispatch({ type: "SET_UI", payload: { confirmState: null } })}
         onConfirm={confirmState?.onConfirm}
         title={confirmState?.title || "Confirm"}
         message={confirmState?.message}
@@ -234,13 +282,16 @@ export default function CombosPage() {
   );
 }
 
+const EMPTY_OBJ = {};
+const EMPTY_ARR = [];
+
 const STRATEGY_OPTIONS = [
   { value: "fallback", label: "Fallback — try in order" },
   { value: "round-robin", label: "Round Robin — rotate" },
   { value: "fusion", label: "Fusion — panel + judge" },
 ];
 
-function ComboCard({ combo, modelCaps = {}, activeProviders = [], copied, onCopy, onEdit, onDelete, strategy = {}, onSetStrategy }) {
+function ComboCard({ combo, modelCaps = EMPTY_OBJ, activeProviders = EMPTY_ARR, copied, onCopy, onEdit, onDelete, strategy = EMPTY_OBJ, onSetStrategy }) {
   const [showJudgeSelect, setShowJudgeSelect] = useState(false);
   const current = strategy.fallbackStrategy || "fallback";
   const judge = strategy.judgeModel || "";
@@ -259,24 +310,25 @@ function ComboCard({ combo, modelCaps = {}, activeProviders = [], copied, onCopy
               {combo.models.length === 0 ? (
                 <span className="text-xs text-text-muted italic">No models</span>
               ) : (
-                combo.models.slice(0, 3).map((model, index) => (
-                  <code key={index} className="inline-flex items-center gap-1 rounded bg-black/5 px-1.5 py-0.5 font-mono text-xs text-text-muted dark:bg-white/5">
+                combo.models.slice(0, 3).map((model) => (
+                  <code key={model} className="inline-flex items-center gap-1 rounded bg-black/5 px-1.5 py-0.5 font-mono text-xs text-text-muted dark:bg-white/5">
                     <span>{model}</span>
                     <CapacityBadges caps={modelCaps[model]} />
                   </code>
                 ))
               )}
               {combo.models.length > 3 && (
-                <span className="text-[10px] text-text-muted">+{combo.models.length - 3} more</span>
+                <span className="text-xs text-text-muted">+{combo.models.length - 3} more</span>
               )}
             </div>
             {/* Fusion: judge picker (Auto = first model) */}
             {isFusion && (
               <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">
-                <span className="text-[11px] font-medium text-text-muted">Judge</span>
+                <span className="text-xs font-medium text-text-muted">Judge</span>
                 <button
+                  type="button"
                   onClick={() => setShowJudgeSelect(true)}
-                  className="inline-flex max-w-full items-center gap-1 rounded border border-dashed border-primary/40 px-1.5 py-0.5 font-mono text-[11px] text-primary hover:border-primary hover:bg-primary/5 transition-colors"
+                  className="inline-flex max-w-full items-center gap-1 rounded border border-dashed border-primary/40 px-1.5 py-0.5 font-mono text-xs text-primary hover:border-primary hover:bg-primary/5 transition-colors"
                   title="Pick the model that fuses panel answers"
                 >
                   <span className="material-symbols-outlined text-[13px]">gavel</span>
@@ -284,6 +336,7 @@ function ComboCard({ combo, modelCaps = {}, activeProviders = [], copied, onCopy
                 </button>
                 {judge && (
                   <button
+                    type="button"
                     onClick={() => onSetStrategy({ judgeModel: "" })}
                     className="p-0.5 rounded text-text-muted hover:text-red-500 hover:bg-red-500/10 transition-colors"
                     title="Reset judge to Auto"
@@ -310,6 +363,7 @@ function ComboCard({ combo, modelCaps = {}, activeProviders = [], copied, onCopy
 
           <div className="grid grid-cols-3 gap-1 sm:flex">
             <button
+              type="button"
               onClick={(e) => { e.stopPropagation(); onCopy(combo.name, `combo-${combo.id}`); }}
               className="flex flex-col items-center rounded px-2 py-1 text-text-muted transition-colors hover:bg-black/5 hover:text-primary dark:hover:bg-white/5"
               title="Copy combo name"
@@ -317,23 +371,25 @@ function ComboCard({ combo, modelCaps = {}, activeProviders = [], copied, onCopy
               <span className="material-symbols-outlined text-[18px]">
                 {copied === `combo-${combo.id}` ? "check" : "content_copy"}
               </span>
-              <span className="text-[10px] leading-tight">Copy</span>
+              <span className="text-xs leading-tight">Copy</span>
             </button>
             <button
+              type="button"
               onClick={onEdit}
               className="flex flex-col items-center rounded px-2 py-1 text-text-muted transition-colors hover:bg-black/5 hover:text-primary dark:hover:bg-white/5"
               title="Edit"
             >
               <span className="material-symbols-outlined text-[18px]">edit</span>
-              <span className="text-[10px] leading-tight">Edit</span>
+              <span className="text-xs leading-tight">Edit</span>
             </button>
             <button
+              type="button"
               onClick={onDelete}
               className="flex flex-col items-center rounded px-2 py-1 text-red-500 transition-colors hover:bg-red-500/10"
               title="Delete"
             >
               <span className="material-symbols-outlined text-[18px]">delete</span>
-              <span className="text-[10px] leading-tight">Delete</span>
+              <span className="text-xs leading-tight">Delete</span>
             </button>
           </div>
         </div>
@@ -362,18 +418,19 @@ function ModelItem({ id, index, model, isFirst, isLast, onEdit, onMoveUp, onMove
     zIndex: isDragging ? 999 : undefined,
   };
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(model);
+  const [draft, setDraft] = useState("");
   const commit = () => {
     const trimmed = draft.trim();
     if (trimmed && trimmed !== model) onEdit(trimmed);
-    else setDraft(model);
     setEditing(false);
   };
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter") commit();
-    if (e.key === "Escape") { setDraft(model); setEditing(false); }
+    if (e.key === "Escape") setEditing(false);
   };
+
+  const startEditing = () => { setDraft(model); setEditing(true); };
 
   return (
     <div
@@ -397,31 +454,33 @@ function ModelItem({ id, index, model, isFirst, isLast, onEdit, onMoveUp, onMove
       </button>
 
       {/* Index badge */}
-      <span className="text-[10px] font-medium text-text-muted w-3 text-center shrink-0">{index + 1}</span>
+      <span className="text-xs font-medium text-text-muted w-3 text-center shrink-0">{index + 1}</span>
 
       {/* Inline editable model value */}
       {editing ? (
         <input
-          autoFocus
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commit}
           onKeyDown={handleKeyDown}
+          aria-label={`Model ${index + 1}`}
           className="min-w-0 flex-1 rounded border border-primary/40 bg-white px-1.5 py-0.5 font-mono text-xs text-text-main outline-none dark:bg-black/20"
         />
       ) : (
-        <div
-          className="min-w-0 flex-1 cursor-text truncate rounded px-1.5 py-0.5 font-mono text-xs text-text-main hover:bg-black/5 dark:hover:bg-white/5"
-          onClick={() => setEditing(true)}
+        <button
+          type="button"
+          className="min-w-0 flex-1 cursor-text truncate rounded px-1.5 py-0.5 font-mono text-xs text-text-main hover:bg-black/5 dark:hover:bg-white/5 text-left"
+          onClick={startEditing}
           title="Click to edit"
         >
           {model}
-        </div>
+        </button>
       )}
 
       {/* Priority arrows */}
       <div className="flex shrink-0 items-center gap-0.5">
         <button
+          type="button"
           onClick={onMoveUp}
           disabled={isFirst}
           className={`p-0.5 rounded ${isFirst ? "text-text-muted/20 cursor-not-allowed" : "text-text-muted hover:text-primary hover:bg-black/5 dark:hover:bg-white/5"}`}
@@ -430,6 +489,7 @@ function ModelItem({ id, index, model, isFirst, isLast, onEdit, onMoveUp, onMove
           <span className="material-symbols-outlined text-[12px]">arrow_upward</span>
         </button>
         <button
+          type="button"
           onClick={onMoveDown}
           disabled={isLast}
           className={`p-0.5 rounded ${isLast ? "text-text-muted/20 cursor-not-allowed" : "text-text-muted hover:text-primary hover:bg-black/5 dark:hover:bg-white/5"}`}
@@ -441,6 +501,7 @@ function ModelItem({ id, index, model, isFirst, isLast, onEdit, onMoveUp, onMove
 
       {/* Remove */}
       <button
+        type="button"
         onClick={onRemove}
         className="p-0.5 hover:bg-red-500/10 rounded text-text-muted hover:text-red-500 transition-all"
         title="Remove"
@@ -451,14 +512,30 @@ function ModelItem({ id, index, model, isFirst, isLast, onEdit, onMoveUp, onMove
   );
 }
 
-function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, kindFilter = null }) {
+function formReducer(state, action) {
+  switch (action.type) {
+    case "SET_FIELD":
+      return { ...state, [action.field]: action.value };
+    case "SET_MODELS":
+      return { ...state, models: action.models };
+    case "SET_SAVING":
+      return { ...state, saving: action.saving };
+    default:
+      return state;
+  }
+}
+
+function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, kindFilter = null, modelAliases = EMPTY_OBJ }) {
   // Initialize state with combo values - key prop on parent handles reset on remount
-  const [name, setName] = useState(combo?.name || "");
-  const [models, setModels] = useState(combo?.models || []);
-  const [showModelSelect, setShowModelSelect] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [nameError, setNameError] = useState("");
-  const [modelAliases, setModelAliases] = useState({});
+  const [form, dispatchForm] = useReducer(formReducer, {
+    name: combo?.name || "",
+    models: combo?.models || [],
+    showModelSelect: false,
+    saving: false,
+    nameError: "",
+  });
+  const { name, models, showModelSelect, saving, nameError } = form;
+  const setField = (field, value) => dispatchForm({ type: "SET_FIELD", field, value });
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -474,79 +551,64 @@ function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, kindF
       const oldIndex = modelItems.findIndex((m) => m.uid === active.id);
       const newIndex = modelItems.findIndex((m) => m.uid === over.id);
       if (oldIndex !== -1 && newIndex !== -1) {
-        setModels((prev) => arrayMove(prev, oldIndex, newIndex));
+        dispatchForm({ type: "SET_MODELS", models: arrayMove(models, oldIndex, newIndex) });
       }
     }
   };
 
-  const fetchModalData = async () => {
-    try {
-      const aliasesRes = await fetch("/api/models/alias");
-      if (!aliasesRes.ok) return;
-      const aliasesData = await aliasesRes.json();
-      setModelAliases(aliasesData.aliases || {});
-    } catch (error) {
-      console.error("Error fetching modal data:", error);
-    }
-  };
-
-  useEffect(() => {
-    if (isOpen) fetchModalData();
-  }, [isOpen]);
-
   const validateName = (value) => {
     if (!value.trim()) {
-      setNameError("Name is required");
+      setField("nameError", "Name is required");
       return false;
     }
     if (!VALID_NAME_REGEX.test(value)) {
-      setNameError("Only letters, numbers, -, _ and . allowed");
+      setField("nameError", "Only letters, numbers, -, _ and . allowed");
       return false;
     }
-    setNameError("");
+    setField("nameError", "");
     return true;
   };
 
   const handleNameChange = (e) => {
     const value = e.target.value;
-    setName(value);
+    setField("name", value);
     if (value) validateName(value);
-    else setNameError("");
+    else setField("nameError", "");
   };
 
   const handleAddModel = (model) => {
     if (!models.includes(model.value)) {
-      setModels([...models, model.value]);
+      dispatchForm({ type: "SET_MODELS", models: [...models, model.value] });
     }
   };
 
   const handleDeselectModel = (model) => {
-    setModels(models.filter((m) => m !== model.value));
+    dispatchForm({ type: "SET_MODELS", models: models.filter((m) => m !== model.value) });
   };
 
   const handleRemoveModel = (index) => {
-    setModels(models.filter((_, i) => i !== index));
+    dispatchForm({ type: "SET_MODELS", models: models.filter((_, i) => i !== index) });
   };
 
   const handleMoveUp = (index) => {
     if (index === 0) return;
     const newModels = [...models];
     [newModels[index - 1], newModels[index]] = [newModels[index], newModels[index - 1]];
-    setModels(newModels);
+    dispatchForm({ type: "SET_MODELS", models: newModels });
   };
 
   const handleMoveDown = (index) => {
     if (index === models.length - 1) return;
     const newModels = [...models];
     [newModels[index], newModels[index + 1]] = [newModels[index + 1], newModels[index]];
-    setModels(newModels);
+    dispatchForm({ type: "SET_MODELS", models: newModels });
   };
 
   const handleSave = async () => {
     if (!validateName(name)) return;
-    setSaving(true);
+    dispatchForm({ type: "SET_SAVING", saving: true });
     await onSave({ name: name.trim(), models });
-    setSaving(false);
+    dispatchForm({ type: "SET_SAVING", saving: false });
   };
 
   const isEdit = !!combo;
@@ -568,14 +630,14 @@ function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, kindF
               placeholder="my-combo"
               error={nameError}
             />
-            <p className="text-[10px] text-text-muted mt-0.5">
+            <p className="text-xs text-text-muted mt-0.5">
               Only letters, numbers, -, _ and . allowed
             </p>
           </div>
 
           {/* Models */}
           <div>
-            <label className="text-sm font-medium mb-1.5 block">Models</label>
+            <span className="text-sm font-medium mb-1.5 block">Models</span>
 
             {models.length === 0 ? (
               <div className="text-center py-4 border border-dashed border-black/10 dark:border-white/10 rounded-lg bg-black/[0.01] dark:bg-white/[0.01]">
@@ -597,7 +659,7 @@ function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, kindF
                       onEdit={(newVal) => {
                         const updated = [...models];
                         updated[index] = newVal;
-                        setModels(updated);
+                        dispatchForm({ type: "SET_MODELS", models: updated });
                       }}
                       onMoveUp={() => handleMoveUp(index)}
                       onMoveDown={() => handleMoveDown(index)}
@@ -611,7 +673,8 @@ function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, kindF
 
             {/* Add Model button */}
             <button
-              onClick={() => setShowModelSelect(true)}
+              type="button"
+              onClick={() => setField("showModelSelect", true)}
               className="w-full mt-2 py-2 border border-dashed border-black/10 dark:border-white/10 rounded-lg text-xs text-primary font-medium hover:text-primary hover:border-primary/50 transition-colors flex items-center justify-center gap-1"
             >
               <span className="material-symbols-outlined text-[16px]">add</span>
@@ -639,7 +702,7 @@ function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, kindF
       {/* Model Select Modal */}
       <ModelSelectModal
         isOpen={showModelSelect}
-        onClose={() => setShowModelSelect(false)}
+        onClose={() => setField("showModelSelect", false)}
         onSelect={handleAddModel}
         onDeselect={handleDeselectModel}
         activeProviders={activeProviders}

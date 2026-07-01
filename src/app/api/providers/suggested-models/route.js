@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { FILTERS } from "./filters.js";
+import { withLocalAuth } from "@/app/api/_lib/auth";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request) {
+export const GET = withLocalAuth(async (request) => {
   const { searchParams } = new URL(request.url);
   const url = searchParams.get("url");
   const type = searchParams.get("type");
@@ -17,8 +18,18 @@ export async function GET(request) {
     return NextResponse.json({ error: "Unknown filter type" }, { status: 400 });
   }
 
+  // Validate URL protocol (untrusted-redirect-following / SSRF)
   try {
-    const res = await fetch(url);
+    const parsedUrl = new URL(url);
+    if (parsedUrl.protocol !== "https:" && parsedUrl.protocol !== "http:") {
+      return NextResponse.json({ error: "Invalid URL protocol" }, { status: 400 });
+    }
+  } catch {
+    return NextResponse.json({ error: "Invalid URL" }, { status: 400 });
+  }
+
+  try {
+    const res = await fetch(url, { redirect: "error" });
     if (!res.ok) {
       return NextResponse.json({ data: [] });
     }
@@ -29,4 +40,4 @@ export async function GET(request) {
   } catch {
     return NextResponse.json({ data: [] });
   }
-}
+});

@@ -1,7 +1,7 @@
 import { resolveDns } from "../shared/dnsResolver.js";
 import { HEALTH_CHECK } from "./config.js";
 
-export async function probeUrlAlive(url) {
+async function probeUrlAlive(url) {
   if (!url) return false;
   let hostname;
   try { hostname = new URL(url).hostname; } catch { return false; }
@@ -22,7 +22,9 @@ export async function waitForHealth(url, cancelToken = { cancelled: false }) {
   const start = Date.now();
   while (Date.now() - start < HEALTH_CHECK.timeoutMs) {
     if (cancelToken.cancelled) throw new Error("cancelled");
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: poll with delay
     if (await probeUrlAlive(url)) return true;
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: poll with delay
     await new Promise((r) => setTimeout(r, HEALTH_CHECK.intervalMs));
   }
   throw new Error(`Health check timeout after ${HEALTH_CHECK.timeoutMs}ms`);

@@ -3,7 +3,8 @@
 import PropTypes from "prop-types";
 import Card from "@/shared/components/Card";
 
-const fmt = (n) => new Intl.NumberFormat().format(n || 0);
+const numberFmt = new Intl.NumberFormat();
+const fmt = (n) => numberFmt.format(n || 0);
 const fmtCost = (n) => `$${(n || 0).toFixed(2)}`;
 
 export default function OverviewCards({ stats }) {
@@ -24,7 +25,7 @@ export default function OverviewCards({ stats }) {
       <Card className="flex min-w-0 flex-col gap-1 px-4 py-3">
         <span className="text-text-muted text-sm uppercase font-semibold">Est. Cost</span>
         <span className="truncate text-2xl font-bold text-warning">~{fmtCost(stats.totalCost)}</span>
-        <span className="text-[10px] text-text-muted">Estimated, not actual billing</span>
+        <span className="text-xs text-text-muted">Estimated, not actual billing</span>
       </Card>
     </div>
   );

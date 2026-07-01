@@ -28,7 +28,7 @@ export async function throwUpstreamError(res) {
 // Parse `model` string as "modelId/voiceId" — match against known model list (longest prefix wins)
 export function parseModelVoice(model, defaultModel = "", defaultVoice = "", knownModels = []) {
   if (!model) return { modelId: defaultModel, voiceId: defaultVoice };
-  const known = knownModels.map((m) => m.id || m).filter(Boolean).sort((a, b) => b.length - a.length);
+  const known = knownModels.flatMap((m) => { const v = m.id || m; return v ? [v] : []; }).sort((a, b) => b.length - a.length);
   for (const id of known) {
     if (model === id) return { modelId: id, voiceId: defaultVoice };
     if (model.startsWith(`${id}/`)) return { modelId: id, voiceId: model.slice(id.length + 1) };

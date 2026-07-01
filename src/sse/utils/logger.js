@@ -9,8 +9,10 @@ const LOG_LEVELS = {
 
 const LEVEL = LOG_LEVELS[process.env.LOG_LEVEL?.toUpperCase?.()] ?? LOG_LEVELS.INFO;
 
+const TIME_FORMATTER = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+
 function formatTime() {
-  return new Date().toLocaleTimeString("en-US", { hour12: false });
+  return TIME_FORMATTER.format(new Date());
 }
 
 function formatData(data) {
@@ -56,13 +58,13 @@ export function request(method, path, extra) {
   console.log(`\x1b[36m[${formatTime()}] 📥 ${method} ${path}${dataStr}\x1b[0m`);
 }
 
-export function response(status, duration, extra) {
+function response(status, duration, extra) {
   const icon = status < 400 ? "📤" : "💥";
   const dataStr = extra ? ` ${formatData(extra)}` : "";
   console.log(`[${formatTime()}] ${icon} ${status} (${duration}ms)${dataStr}`);
 }
 
-export function stream(event, data) {
+function stream(event, data) {
   const dataStr = data ? ` ${formatData(data)}` : "";
   console.log(`[${formatTime()}] 🌊 [STREAM] ${event}${dataStr}`);
 }

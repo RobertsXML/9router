@@ -27,6 +27,7 @@ export default {
     if (!pollingUrl) throw new Error("BFL: no polling_url returned");
     const deadline = Date.now() + POLL_TIMEOUT_MS;
     while (Date.now() < deadline) {
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential polling loop
       await sleep(POLL_INTERVAL_MS);
       const r = await fetch(pollingUrl, { headers: { "x-key": headers["x-key"], "Accept": "application/json" } });
       if (!r.ok) throw new Error(`BFL status ${r.status}`);

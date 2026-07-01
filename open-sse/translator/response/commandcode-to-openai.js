@@ -15,9 +15,11 @@
  * Each upstream "event" arrives as one JSON object per line — we receive it as a string chunk
  * already split per line by the upstream SSE/JSON-line reader in 9router.
  */
-import { register } from "../index.js";
+import { register } from "../registry.js";
 import { FORMATS } from "../formats.js";
-import { ROLE, OPENAI_BLOCK, OPENAI_FINISH } from "../schema/index.js";
+import { ROLE } from "../schema/roles.js";
+import { OPENAI_BLOCK } from "../schema/blocks.js";
+import { OPENAI_FINISH } from "../schema/finishReasons.js";
 import { buildChunk } from "../concerns/chunk.js";
 import { toOpenAIUsage } from "../concerns/usage.js";
 import { reasoningDelta } from "../concerns/reasoning.js";

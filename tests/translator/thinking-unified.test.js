@@ -9,7 +9,7 @@ import {
 import { extractReasoningText } from "../../open-sse/translator/concerns/reasoning.js";
 
 const apply = (targetFormat, model, body, provider) => {
-  const b = JSON.parse(JSON.stringify(body));
+  const b = structuredClone(body);
   applyThinking(targetFormat, model, b, provider);
   return b;
 };

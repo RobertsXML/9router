@@ -12,16 +12,23 @@ import { FORMATS } from "../../open-sse/translator/formats.js";
 
 // Strip volatile id/created so snapshots are stable across runs.
 function stripVolatile(chunks) {
-  return JSON.parse(JSON.stringify(chunks), (key, val) => {
-    if (key === "created") return 0;
-    if (key === "id" && typeof val === "string") {
-      return val
-        .replace(/-\d{10,}-(\d+)$/, "-<TS>-$1")
-        .replace(/^chatcmpl-\d{10,}$/, "chatcmpl-<TS>")
-        .replace(/^call_(\d+)_\d{10,}$/, "call_$1_<TS>")
-        .replace(/^call_\d{10,}_(\d+)$/, "call_<TS>_$1");
+  const clone = structuredClone(chunks);
+  return clone.map(function strip(obj) {
+    if (Array.isArray(obj)) return obj.map(strip);
+    if (obj && typeof obj === "object") {
+      for (const [k, v] of Object.entries(obj)) {
+        if (k === "created") { obj[k] = 0; }
+        else if (k === "id" && typeof v === "string") {
+          obj[k] = v
+            .replace(/-\d{10,}-(\d+)$/, "-<TS>-$1")
+            .replace(/^chatcmpl-\d{10,}$/, "chatcmpl-<TS>")
+            .replace(/^call_(\d+)_\d{10,}$/, "call_$1_<TS>")
+            .replace(/^call_\d{10,}_(\d+)$/, "call_<TS>_$1");
+        }
+        else if (v && typeof v === "object") { strip(v); }
+      }
     }
-    return val;
+    return obj;
   });
 }
 

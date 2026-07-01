@@ -1,9 +1,17 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useEffectEvent } from "react";
 import { cn } from "@/shared/utils/cn";
 import Button from "./Button";
 import Tooltip from "./Tooltip";
+
+const sizes = {
+  sm: "max-w-sm",
+  md: "max-w-md",
+  lg: "max-w-lg",
+  xl: "max-w-xl",
+  full: "max-w-4xl",
+};
 
 export default function Modal({
   isOpen,
@@ -16,14 +24,6 @@ export default function Modal({
   showTrafficLights = true,
   className,
 }) {
-  const sizes = {
-    sm: "max-w-sm",
-    md: "max-w-md",
-    lg: "max-w-lg",
-    xl: "max-w-xl",
-    full: "max-w-4xl",
-  };
-
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = "hidden";
@@ -33,23 +33,25 @@ export default function Modal({
     return () => { document.body.style.overflow = ""; };
   }, [isOpen]);
 
+  const handleClose = useEffectEvent(() => onClose());
   useEffect(() => {
     const handleEscape = (e) => {
-      if (e.key === "Escape" && isOpen) onClose();
+      if (e.key === "Escape" && isOpen) handleClose();
     };
     document.addEventListener("keydown", handleEscape);
     return () => document.removeEventListener("keydown", handleEscape);
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Overlay */}
-      <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-[2px] fade-in"
-        onClick={closeOnOverlay ? onClose : undefined}
-      />
+      {closeOnOverlay ? (
+        <button type="button" className="absolute inset-0 bg-black/50 backdrop-blur-[2px] fade-in" onClick={onClose} aria-label="Close modal" />
+      ) : (
+        <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px] fade-in" />
+      )}
 
       {/* Modal content */}
       <div
@@ -71,6 +73,7 @@ export default function Modal({
                 <div className="hidden md:flex items-center gap-2 mr-4 ml-2">
                   <Tooltip text="Close" position="top" color="#FF5F56">
                     <button
+                      type="button"
                       onClick={onClose}
                       aria-label="Close"
                       title="Close"
@@ -89,6 +92,7 @@ export default function Modal({
             </div>
             {/* X button — mobile only */}
             <button
+              type="button"
               onClick={onClose}
               aria-label="Close"
               className="md:hidden p-1.5 rounded-[10px] text-text-muted hover:bg-surface-2 hover:text-text-main transition-colors"

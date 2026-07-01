@@ -86,4 +86,4 @@ export class GeminiCLIExecutor extends BaseExecutor {
   }
 }
 
-export default GeminiCLIExecutor;
+// ponytail: removed unused default export; add back if dynamic import pattern changes

@@ -98,6 +98,7 @@ export default function BulkImportCodexModal({ isOpen, onClose, onSuccess }) {
           value={jsonText}
           onChange={(e) => setJsonText(e.target.value)}
           disabled={submitting}
+          aria-label="Codex account JSON"
         />
 
         {parseError && (

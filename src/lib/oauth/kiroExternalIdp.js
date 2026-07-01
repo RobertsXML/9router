@@ -11,7 +11,7 @@ function normalizeString(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-export function validateMicrosoftTokenEndpoint(rawEndpoint) {
+function validateMicrosoftTokenEndpoint(rawEndpoint) {
   const tokenEndpoint = normalizeString(rawEndpoint);
   if (!tokenEndpoint) throw new Error("token_endpoint is required");
 
@@ -34,9 +34,9 @@ export function validateMicrosoftTokenEndpoint(rawEndpoint) {
   return parsed.toString();
 }
 
-export function normalizeScope(scopes) {
+function normalizeScope(scopes) {
   if (Array.isArray(scopes)) {
-    return scopes.map(normalizeString).filter(Boolean).join(" ");
+    return scopes.flatMap((s) => { const n = normalizeString(s); return n ? [n] : []; }).join(" ");
   }
   return normalizeString(scopes);
 }

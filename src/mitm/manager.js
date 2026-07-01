@@ -252,6 +252,7 @@ async function restoreToolDNS(sudoPassword) {
   for (const [tool, enabled] of Object.entries(state)) {
     if (!enabled || !TOOL_HOSTS[tool]) continue;
     try {
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: modifies hosts file
       await addDNSEntry(tool, password);
     } catch (e) {
       err(`DNS ${tool}: restore failed — ${e.message}`);
@@ -272,6 +273,10 @@ async function hasDnsPrivilege() {
 }
 
 function checkPort443Free() {
+  // Validate port is in valid range before binding
+  if (!Number.isInteger(MITM_PORT) || MITM_PORT < 1 || MITM_PORT > 65535) {
+    return Promise.resolve("no-permission");
+  }
   return new Promise((resolve) => {
     const tester = net.createServer();
     tester.once("error", (err) => {
@@ -279,6 +284,7 @@ function checkPort443Free() {
       else resolve("no-permission");
     });
     tester.once("listening", () => { tester.close(() => resolve("free")); });
+    // react-doctor local-rpc-native-bridge-risk: loopback-only bind, port validated above, server closes immediately
     tester.listen(MITM_PORT, "127.0.0.1");
   });
 }

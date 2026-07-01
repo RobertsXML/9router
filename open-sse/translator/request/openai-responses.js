@@ -4,10 +4,11 @@
  * Responses API uses: { input: [...], instructions: "..." }
  * Chat API uses: { messages: [...] }
  */
-import { register } from "../index.js";
+import { register } from "../registry.js";
 import { FORMATS } from "../formats.js";
 import { normalizeResponsesInput } from "../formats/responsesApi.js";
-import { ROLE, OPENAI_BLOCK, RESPONSES_ITEM } from "../schema/index.js";
+import { ROLE } from "../schema/roles.js";
+import { OPENAI_BLOCK, RESPONSES_ITEM } from "../schema/blocks.js";
 
 // Responses API enforces max 64 chars on call_id (#393)
 const MAX_CALL_ID_LEN = 64;
@@ -38,11 +39,11 @@ export function openaiResponsesToOpenAIRequest(model, body, stream, credentials)
   // Extract reasoning text from summary[].text or encrypted_content fallback
   const extractReasoningText = (item) => {
     if (Array.isArray(item.summary)) {
-      const txt = item.summary.map(s => s?.text || "").filter(Boolean).join("\n");
+      const txt = item.summary.flatMap(s => { const t = s?.text; return t ? [t] : []; }).join("\n");
       if (txt) return txt;
     }
     if (Array.isArray(item.content)) {
-      const txt = item.content.map(c => c?.text || "").filter(Boolean).join("\n");
+      const txt = item.content.flatMap(c => { const t = c?.text; return t ? [t] : []; }).join("\n");
       if (txt) return txt;
     }
     return "";
@@ -156,14 +157,14 @@ export function openaiResponsesToOpenAIRequest(model, body, stream, credentials)
   // such as Gemini, which strictly validates function names.
   if (body.tools && Array.isArray(body.tools)) {
     result.tools = body.tools
-      .map(tool => {
+      .flatMap(tool => {
         // Already in Chat Completions format: { type: "function", function: { name, ... } }
-        if (tool.function) return tool;
+        if (tool.function) return [tool];
         // Responses API function tool: { type: "function", name, description, parameters }
         // Only convert when a non-empty name is present; skip hosted tools without one.
         const name = tool.name;
-        if (!name || typeof name !== "string" || name.trim() === "") return null;
-        return {
+        if (!name || typeof name !== "string" || name.trim() === "") return [];
+        return [{
           type: OPENAI_BLOCK.FUNCTION,
           function: {
             name,
@@ -171,9 +172,8 @@ export function openaiResponsesToOpenAIRequest(model, body, stream, credentials)
             parameters: normalizeToolParameters(tool.parameters),
             strict: tool.strict
           }
-        };
-      })
-      .filter(Boolean);
+        }];
+      });
   }
 
   // Cleanup Responses API specific fields

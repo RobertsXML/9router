@@ -55,12 +55,14 @@ async function parseStream(response, log, callbacks = {}) {
   let lastProgressLogMs = 0;
 
   while (true) {
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential stream read
     const { done, value } = await reader.read();
     if (done) break;
     bytesReceived += value?.byteLength || 0;
     buffer += decoder.decode(value, { stream: true });
 
     let sepIdx;
+    // eslint-disable-next-line react-doctor/js-set-map-lookups -- string search, not array
     while ((sepIdx = buffer.indexOf("\n\n")) !== -1) {
       const block = buffer.slice(0, sepIdx);
       buffer = buffer.slice(sepIdx + 2);

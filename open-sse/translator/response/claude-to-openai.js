@@ -1,6 +1,8 @@
-import { register } from "../index.js";
+import { register } from "../registry.js";
 import { FORMATS } from "../formats.js";
-import { ROLE, OPENAI_BLOCK, CLAUDE_BLOCK, OPENAI_FINISH } from "../schema/index.js";
+import { ROLE } from "../schema/roles.js";
+import { OPENAI_BLOCK, CLAUDE_BLOCK } from "../schema/blocks.js";
+import { OPENAI_FINISH } from "../schema/finishReasons.js";
 import { buildChunk } from "../concerns/chunk.js";
 import { toOpenAIUsage } from "../concerns/usage.js";
 import { reasoningDelta } from "../concerns/reasoning.js";

@@ -2,15 +2,15 @@
 
 import { cn } from "@/shared/utils/cn";
 
-// Spinner loading
-export function Spinner({ size = "md", className }) {
-  const sizes = {
-    sm: "size-4",
-    md: "size-6",
-    lg: "size-8",
-    xl: "size-12",
-  };
+const sizes = {
+  sm: "size-4",
+  md: "size-6",
+  lg: "size-8",
+  xl: "size-12",
+};
 
+// Spinner loading
+function Spinner({ size = "md", className }) {
   return (
     <span
       className={cn(
@@ -25,7 +25,7 @@ export function Spinner({ size = "md", className }) {
 }
 
 // Full page loading
-export function PageLoading({ message = "Loading..." }) {
+function PageLoading({ message = "Loading..." }) {
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-bg">
       <Spinner size="xl" />
@@ -35,7 +35,7 @@ export function PageLoading({ message = "Loading..." }) {
 }
 
 // Skeleton loading
-export function Skeleton({ className, ...props }) {
+function Skeleton({ className, ...props }) {
   return (
     <div
       className={cn(

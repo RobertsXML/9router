@@ -2,8 +2,9 @@ import { platform, arch } from "os";
 import { PROVIDERS, PROVIDER_OAUTH } from "./providers.js";
 
 // === Gemini CLI === derive từ registry gemini-cli.transport
-export const GEMINI_CLI_VERSION = PROVIDERS["gemini-cli"]?.cliVersion;
-export const GEMINI_CLI_API_CLIENT = PROVIDERS["gemini-cli"]?.apiClient;
+const _geminiCli = PROVIDERS["gemini-cli"];
+const GEMINI_CLI_VERSION = _geminiCli?.cliVersion;
+export const GEMINI_CLI_API_CLIENT = _geminiCli?.apiClient;
 
 // Map Node arch to Gemini CLI arch string (x64/x86/arm64/...)
 function geminiCLIArch() {
@@ -27,14 +28,14 @@ export const GITHUB_COPILOT = {
 };
 
 // === Antigravity enums ===
-export const IDE_TYPE = {
+const IDE_TYPE = {
   UNSPECIFIED: 0,
   JETSKI: 10,
   ANTIGRAVITY: 9,
   PLUGINS: 7
 };
 
-export const PLATFORM = {
+const PLATFORM = {
   UNSPECIFIED: 0,
   DARWIN_AMD64: 1,
   DARWIN_ARM64: 2,
@@ -43,13 +44,13 @@ export const PLATFORM = {
   WINDOWS_AMD64: 5
 };
 
-export const PLUGIN_TYPE = {
+const PLUGIN_TYPE = {
   UNSPECIFIED: 0,
   CLOUD_CODE: 1,
   GEMINI: 2
 };
 
-export function getPlatformEnum() {
+function getPlatformEnum() {
   const os = platform();
   const architecture = arch();
   if (os === "darwin") return architecture === "arm64" ? PLATFORM.DARWIN_ARM64 : PLATFORM.DARWIN_AMD64;
@@ -157,7 +158,7 @@ export const ANTIGRAVITY_DEFAULT_SYSTEM = "You are Antigravity, a powerful agent
 
 // Derive từ registry oauth.refreshLeadMs
 export const REFRESH_LEAD_MS = Object.fromEntries(
-  Object.entries(PROVIDER_OAUTH).filter(([, o]) => o.refreshLeadMs).map(([id, o]) => [id, o.refreshLeadMs])
+  Object.entries(PROVIDER_OAUTH).reduce((acc, [id, o]) => { if (o.refreshLeadMs) acc.push([id, o.refreshLeadMs]); return acc; }, [])
 );
 
 // OAuth endpoints

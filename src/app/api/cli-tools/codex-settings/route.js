@@ -7,12 +7,13 @@ import fs from "fs/promises";
 import path from "path";
 import os from "os";
 import { parseTOML, stringifyTOML } from "confbox";
+import { withLocalAuth } from "@/app/api/_lib/auth";
 
 const execAsync = promisify(exec);
 
-const getCodexDir = () => path.join(os.homedir(), ".codex");
-const getCodexConfigPath = () => path.join(getCodexDir(), "config.toml");
-const getCodexAuthPath = () => path.join(getCodexDir(), "auth.json");
+const CODEX_DIR = path.join(os.homedir(), ".codex");
+const CODEX_CONFIG_PATH = path.join(CODEX_DIR, "config.toml");
+const CODEX_AUTH_PATH = path.join(CODEX_DIR, "auth.json");
 
 // Flatten confbox-parsed TOML into a writable object, preserving nested tables
 const parsedToWritable = (obj) => obj ?? {};
@@ -53,7 +54,7 @@ const checkCodexInstalled = async () => {
     return true;
   } catch {
     try {
-      await fs.access(getCodexConfigPath());
+      await fs.access(CODEX_CONFIG_PATH);
       return true;
     } catch {
       return false;
@@ -64,8 +65,7 @@ const checkCodexInstalled = async () => {
 // Read current config.toml
 const readConfig = async () => {
   try {
-    const configPath = getCodexConfigPath();
-    const content = await fs.readFile(configPath, "utf-8");
+    const content = await fs.readFile(CODEX_CONFIG_PATH, "utf-8");
     return content;
   } catch (error) {
     if (error.code === "ENOENT") return null;
@@ -80,10 +80,10 @@ const has9RouterConfig = (config) => {
 };
 
 // GET - Check codex CLI and read current settings
-export async function GET() {
+export const GET = withLocalAuth(async () => {
   try {
     const isInstalled = await checkCodexInstalled();
-    
+
     if (!isInstalled) {
       return NextResponse.json({
         installed: false,
@@ -98,33 +98,29 @@ export async function GET() {
       installed: true,
       config,
       has9Router: has9RouterConfig(config),
-      configPath: getCodexConfigPath(),
+      configPath: CODEX_CONFIG_PATH,
     });
   } catch (error) {
-    console.log("Error checking codex settings:", error);
     return NextResponse.json({ error: "Failed to check codex settings" }, { status: 500 });
   }
-}
+});
 
 // POST - Update 9Router settings (merge with existing config)
-export async function POST(request) {
+export const POST = withLocalAuth(async (request) => {
   try {
     const { baseUrl, apiKey, model, subagentModel } = await request.json();
-    
+
     if (!baseUrl || !apiKey || !model) {
       return NextResponse.json({ error: "baseUrl, apiKey and model are required" }, { status: 400 });
     }
 
-    const codexDir = getCodexDir();
-    const configPath = getCodexConfigPath();
-
     // Ensure directory exists
-    await fs.mkdir(codexDir, { recursive: true });
+    await fs.mkdir(CODEX_DIR, { recursive: true });
 
     // Read and parse existing config
     let parsed = {};
     try {
-      const existingConfig = await fs.readFile(configPath, "utf-8");
+      const existingConfig = await fs.readFile(CODEX_CONFIG_PATH, "utf-8");
       parsed = parsedToWritable(parseTOML(existingConfig));
     } catch { /* No existing config */ }
 
@@ -149,41 +145,37 @@ export async function POST(request) {
 
     // Write merged config
     const configContent = stringifyTOML(parsed);
-    await fs.writeFile(configPath, configContent);
+    await fs.writeFile(CODEX_CONFIG_PATH, configContent);
 
     // Update auth.json with OPENAI_API_KEY (Codex reads this first)
-    const authPath = getCodexAuthPath();
     let authData = {};
     try {
-      const existingAuth = await fs.readFile(authPath, "utf-8");
+      const existingAuth = await fs.readFile(CODEX_AUTH_PATH, "utf-8");
       authData = JSON.parse(existingAuth);
     } catch { /* No existing auth */ }
-    
+
     // Force apikey mode (keep existing tokens untouched for ChatGPT login reuse)
     authData.OPENAI_API_KEY = apiKey;
     authData.auth_mode = "apikey";
-    await fs.writeFile(authPath, JSON.stringify(authData, null, 2));
+    await fs.writeFile(CODEX_AUTH_PATH, JSON.stringify(authData, null, 2));
 
     return NextResponse.json({
       success: true,
       message: "Codex settings applied successfully!",
-      configPath,
+      configPath: CODEX_CONFIG_PATH,
     });
   } catch (error) {
-    console.log("Error updating codex settings:", error);
     return NextResponse.json({ error: "Failed to update codex settings" }, { status: 500 });
   }
-}
+});
 
 // DELETE - Remove 9Router settings only (keep other settings)
-export async function DELETE() {
+export const DELETE = withLocalAuth(async () => {
   try {
-    const configPath = getCodexConfigPath();
-
     // Read and parse existing config
     let parsed = {};
     try {
-      const existingConfig = await fs.readFile(configPath, "utf-8");
+      const existingConfig = await fs.readFile(CODEX_CONFIG_PATH, "utf-8");
       parsed = parsedToWritable(parseTOML(existingConfig));
     } catch (error) {
       if (error.code === "ENOENT") {
@@ -209,21 +201,20 @@ export async function DELETE() {
 
     // Write updated config
     const configContent = stringifyTOML(parsed);
-    await fs.writeFile(configPath, configContent);
+    await fs.writeFile(CODEX_CONFIG_PATH, configContent);
 
     // Remove OPENAI_API_KEY from auth.json
-    const authPath = getCodexAuthPath();
     try {
-      const existingAuth = await fs.readFile(authPath, "utf-8");
+      const existingAuth = await fs.readFile(CODEX_AUTH_PATH, "utf-8");
       const authData = JSON.parse(existingAuth);
       delete authData.OPENAI_API_KEY;
       delete authData.auth_mode;
 
       // Write back or delete if empty
       if (Object.keys(authData).length === 0) {
-        await fs.unlink(authPath);
+        await fs.unlink(CODEX_AUTH_PATH);
       } else {
-        await fs.writeFile(authPath, JSON.stringify(authData, null, 2));
+        await fs.writeFile(CODEX_AUTH_PATH, JSON.stringify(authData, null, 2));
       }
     } catch { /* No auth file */ }
 
@@ -232,7 +223,6 @@ export async function DELETE() {
       message: "9Router settings removed successfully",
     });
   } catch (error) {
-    console.log("Error resetting codex settings:", error);
     return NextResponse.json({ error: "Failed to reset codex settings" }, { status: 500 });
   }
-}
+});

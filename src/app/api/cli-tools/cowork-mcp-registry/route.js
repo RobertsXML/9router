@@ -1,6 +1,7 @@
 "use server";
 
 import { NextResponse } from "next/server";
+import { withLocalAuth } from "@/app/api/_lib/auth";
 
 const REGISTRY_URL = "https://api.anthropic.com/mcp-registry/v0/servers";
 const VISIBILITY = "commercial,gsuite,gsuite-google";
@@ -26,6 +27,7 @@ async function fetchAll() {
   let cursor = "";
   for (let i = 0; i < 20; i++) {
     const url = `${REGISTRY_URL}?limit=500&visibility=${VISIBILITY}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: pagination depends on previous cursor
     const r = await fetch(url, { headers: { accept: "application/json" } });
     if (!r.ok) break;
     const j = await r.json();
@@ -58,7 +60,7 @@ async function fetchAll() {
   return out.filter((s) => (seen.has(s.url) ? false : (seen.add(s.url), true)));
 }
 
-export async function GET(request) {
+export const GET = withLocalAuth(async (request) => {
   const { searchParams } = new URL(request.url);
   const force = searchParams.get("refresh") === "1";
   const cache = gcache();
@@ -74,4 +76,4 @@ export async function GET(request) {
   } catch (e) {
     return NextResponse.json({ error: e.message, servers: [], total: 0 }, { status: 500 });
   }
-}
+});

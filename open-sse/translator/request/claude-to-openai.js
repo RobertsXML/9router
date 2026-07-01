@@ -1,8 +1,9 @@
-import { register } from "../index.js";
+import { register } from "../registry.js";
 import { FORMATS } from "../formats.js";
 import { adjustMaxTokens } from "../formats/maxTokens.js";
 import { encodeDataUri } from "../concerns/image.js";
-import { ROLE, OPENAI_BLOCK, CLAUDE_BLOCK } from "../schema/index.js";
+import { ROLE } from "../schema/roles.js";
+import { OPENAI_BLOCK, CLAUDE_BLOCK } from "../schema/blocks.js";
 import { collapseTextParts } from "../concerns/message.js";
 
 function stripAnthropicBillingHeader(text) {
@@ -31,7 +32,7 @@ export function claudeToOpenAIRequest(model, body, stream) {
   // System message
   if (body.system) {
     const systemContent = Array.isArray(body.system)
-      ? body.system.map(s => stripAnthropicBillingHeader(s.text || "")).filter(Boolean).join("\n")
+      ? body.system.flatMap(s => { const v = stripAnthropicBillingHeader(s.text || ""); return v ? [v] : []; }).join("\n")
       : stripAnthropicBillingHeader(body.system);
     
     if (systemContent) {
@@ -132,7 +133,7 @@ function fixMissingToolResponsesOpenAI(messages) {
 // Wrap mid-conversation system text so it ends as a user turn (avoids Anthropic prefill 400)
 function systemReminderText(content) {
   const parts = Array.isArray(content)
-    ? content.filter(c => c?.type === CLAUDE_BLOCK.TEXT).map(c => c.text || "")
+    ? content.reduce((acc, c) => { if (c?.type === CLAUDE_BLOCK.TEXT) acc.push(c.text || ""); return acc; }, [])
     : [typeof content === "string" ? content : ""];
   const text = parts.filter(Boolean).join("\n");
   if (!text.trim()) return "";
@@ -193,10 +194,7 @@ function convertClaudeMessage(msg) {
           if (typeof block.content === "string") {
             resultContent = block.content;
           } else if (Array.isArray(block.content)) {
-            resultContent = block.content
-              .filter(c => c.type === CLAUDE_BLOCK.TEXT)
-              .map(c => c.text)
-              .join("\n") || JSON.stringify(block.content);
+            resultContent = block.content.reduce((acc, c) => { if (c.type === CLAUDE_BLOCK.TEXT) acc.push(c.text); return acc; }, []).join("\n") || JSON.stringify(block.content);
           } else if (block.content) {
             resultContent = JSON.stringify(block.content);
           }

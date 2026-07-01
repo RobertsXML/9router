@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withLocalAuth } from "@/app/api/_lib/auth";
 import { createProxyPool } from "@/models";
 
 const VERCEL_API = "https://api.vercel.com";
@@ -42,21 +43,23 @@ export default async function handler(req) {
 async function pollDeployment(deploymentId, token, maxMs = 120000) {
   const start = Date.now();
   while (Date.now() - start < maxMs) {
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: poll deployment status until ready
     const res = await fetch(`${VERCEL_API}/v13/deployments/${deploymentId}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: poll loop, each iteration checks status
     const data = await res.json();
     if (data.readyState === "READY") return data;
     if (data.readyState === "ERROR" || data.readyState === "CANCELED") {
       throw new Error(`Deployment failed: ${data.readyState}`);
     }
-    await new Promise((r) => setTimeout(r, 3000));
+    await new Promise((r) => setTimeout(r, 3000)); // react-doctor-disable-line react-doctor/async-await-in-loop -- sequential: polling delay between checks
   }
   throw new Error("Deployment timed out");
 }
 
 // POST /api/proxy-pools/vercel-deploy
-export async function POST(request) {
+export const POST = withLocalAuth(async (request) => {
   try {
     const body = await request.json();
     const vercelToken = body.vercelToken;
@@ -139,4 +142,4 @@ export async function POST(request) {
     console.log("Error deploying Vercel relay:", error);
     return NextResponse.json({ error: error.message || "Deploy failed" }, { status: 500 });
   }
-}
+});

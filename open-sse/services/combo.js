@@ -19,43 +19,45 @@ const TOOL_RESULT_PREFIX = "[Tool result: ";
 // on tools: drop the request's tools, turn tool/function results into assistant
 // text, and inline assistant tool_calls names instead of the structured field.
 function flattenToolHistory(messages) {
-  return messages
-    .filter((msg) => msg)
-    .map((msg) => {
-      if (msg.role === "tool" || msg.role === "function") {
-        return { role: "assistant", content: `${TOOL_RESULT_PREFIX}${extractTextContent(msg.content) || String(msg.content ?? "")}]` };
-      }
-      if (msg.role === "assistant" && Array.isArray(msg.tool_calls)) {
-        const { tool_calls, ...rest } = msg;
-        const names = tool_calls.map((c) => c?.function?.name || c?.name || "tool").join(", ");
-        const base = extractTextContent(rest.content) || (typeof rest.content === "string" ? rest.content : "");
-        return { ...rest, content: `${base}${base ? "\n" : ""}${TOOL_CALL_PREFIX}${names}]` };
-      }
-      if (Array.isArray(msg.content)) {
-        const hasToolUse = msg.content.some((c) => c.type === "tool_use");
-        const hasToolResult = msg.content.some((c) => c.type === "tool_result");
-        if (hasToolUse || hasToolResult) {
-          const textParts = [];
-          const toolNames = [];
-          const toolResults = [];
-          for (const block of msg.content) {
-            if (block.type === "text" && block.text) textParts.push(block.text);
-            if (block.type === "tool_use") toolNames.push(block.name || "tool");
-            if (block.type === "tool_result") toolResults.push(extractTextContent(block.content) || String(block.content ?? ""));
-          }
-          const { ...rest } = msg;
-          let newContent = textParts.join("\n");
-          if (toolNames.length > 0) {
-            newContent = `${newContent}${newContent ? "\n" : ""}${TOOL_CALL_PREFIX}${toolNames.join(", ")}]`;
-          }
-          if (toolResults.length > 0) {
-            newContent = `${newContent}${newContent ? "\n" : ""}${TOOL_RESULT_PREFIX}${toolResults.join("\n")}]`;
-          }
-          return { ...rest, content: newContent };
+  const result = [];
+  for (const msg of messages) {
+    if (!msg) continue;
+    if (msg.role === "tool" || msg.role === "function") {
+      result.push({ role: "assistant", content: `${TOOL_RESULT_PREFIX}${extractTextContent(msg.content) || String(msg.content ?? "")}]` });
+    } else if (msg.role === "assistant" && Array.isArray(msg.tool_calls)) {
+      const { tool_calls, ...rest } = msg;
+      const names = tool_calls.map((c) => c?.function?.name || c?.name || "tool").join(", ");
+      const base = extractTextContent(rest.content) || (typeof rest.content === "string" ? rest.content : "");
+      result.push({ ...rest, content: `${base}${base ? "\n" : ""}${TOOL_CALL_PREFIX}${names}]` });
+    } else if (Array.isArray(msg.content)) {
+      const hasToolUse = msg.content.some((c) => c.type === "tool_use");
+      const hasToolResult = msg.content.some((c) => c.type === "tool_result");
+      if (hasToolUse || hasToolResult) {
+        const textParts = [];
+        const toolNames = [];
+        const toolResults = [];
+        for (const block of msg.content) {
+          if (block.type === "text" && block.text) textParts.push(block.text);
+          if (block.type === "tool_use") toolNames.push(block.name || "tool");
+          if (block.type === "tool_result") toolResults.push(extractTextContent(block.content) || String(block.content ?? ""));
         }
+        const { ...rest } = msg;
+        let newContent = textParts.join("\n");
+        if (toolNames.length > 0) {
+          newContent = `${newContent}${newContent ? "\n" : ""}${TOOL_CALL_PREFIX}${toolNames.join(", ")}]`;
+        }
+        if (toolResults.length > 0) {
+          newContent = `${newContent}${newContent ? "\n" : ""}${TOOL_RESULT_PREFIX}${toolResults.join("\n")}]`;
+        }
+        result.push({ ...rest, content: newContent });
+      } else {
+        result.push(msg);
       }
-      return msg;
-    });
+    } else {
+      result.push(msg);
+    }
+  }
+  return result;
 }
 
 // Reorder combo models by capability fit. Stable; never drops a model (fallback intact).
@@ -251,6 +253,7 @@ export async function handleComboChat({ body, models, handleSingleModel, log, co
     log.info("COMBO", `Trying model ${i + 1}/${rotatedModels.length}: ${modelStr}`);
 
     try {
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: fallback chain, try next model on failure
       const result = await handleSingleModel(body, modelStr);
       
       // Success (2xx) - return response
@@ -529,27 +532,26 @@ export async function handleFusionChat({ body, models, handleSingleModel, log, c
   log.info("FUSION", `fan-out collected in ${Date.now() - t0}ms`);
 
   // 2. Collect successful answers.
-  const answers = [];
-  for (let i = 0; i < settled.length; i++) {
-    const res = settled[i];
+  const parsed = await Promise.all(settled.map(async (res, i) => {
     const model = panel[i];
-    if (!res) { log.warn("FUSION", `Panel ${model} dropped (straggler/timeout)`); continue; }
-    if (res.__timeout) { log.warn("FUSION", `Panel ${model} timed out`); continue; }
-    if (res.__error) { log.warn("FUSION", `Panel ${model} threw`, { error: res.__error?.message || String(res.__error) }); continue; }
-    if (!res.ok) { log.warn("FUSION", `Panel ${model} failed`, { status: res.status }); continue; }
+    if (!res) { log.warn("FUSION", `Panel ${model} dropped (straggler/timeout)`); return null; }
+    if (res.__timeout) { log.warn("FUSION", `Panel ${model} timed out`); return null; }
+    if (res.__error) { log.warn("FUSION", `Panel ${model} threw`, { error: res.__error?.message || String(res.__error) }); return null; }
+    if (!res.ok) { log.warn("FUSION", `Panel ${model} failed`, { status: res.status }); return null; }
     try {
       const json = await res.clone().json();
       const text = extractPanelText(json);
       if (text) {
-        answers.push({ model, text });
         log.info("FUSION", `Panel ${model} ok (${text.length} chars)`);
-      } else {
-        log.warn("FUSION", `Panel ${model} returned empty content`);
+        return { model, text };
       }
+      log.warn("FUSION", `Panel ${model} returned empty content`);
     } catch (e) {
       log.warn("FUSION", `Panel ${model} unparseable`, { error: e.message || String(e) });
     }
-  }
+    return null;
+  }));
+  const answers = parsed.filter(Boolean);
 
   // 3. Degrade gracefully when the panel is too thin to fuse.
   if (answers.length === 0) {

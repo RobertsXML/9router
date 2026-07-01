@@ -1,40 +1,61 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef, useReducer } from "react";
 import PropTypes from "prop-types";
 import { Modal, Input, Button, Badge } from "@/shared/components";
 
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 
+function ValidationResult({ result }) {
+  if (!result) return null;
+  const { valid, error, dimensions } = result;
+  if (valid) {
+    return (
+      <>
+        <Badge variant="success">Valid</Badge>
+        {dimensions && <span className="text-sm text-text-muted">{dimensions} dims</span>}
+      </>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      <Badge variant="error">Invalid</Badge>
+      {error && <span className="text-sm text-red-500">{error}</span>}
+    </div>
+  );
+}
+
 // Dual-mode modal: edit when `node` provided, add otherwise
+function validationReducer(state, action) {
+  switch (action.type) {
+    case 'SET_KEY': return { ...state, checkKey: action.payload };
+    case 'SET_MODEL_ID': return { ...state, checkModelId: action.payload };
+    case 'VALIDATING': return { ...state, validating: true };
+    case 'SET_RESULT': return { ...state, validating: false, validationResult: action.payload };
+    case 'RESET': return { checkKey: "", checkModelId: "", validating: false, validationResult: null };
+    default: return state;
+  }
+}
+
 export default function AddCustomEmbeddingModal({ isOpen, onClose, onCreated, onSaved, node }) {
   const isEdit = !!node;
-  const [formData, setFormData] = useState({
-    name: "",
-    prefix: "",
-    baseUrl: DEFAULT_BASE_URL,
-  });
+  const defaultFormData = useMemo(() => node
+    ? { name: node.name || "", prefix: node.prefix || "", baseUrl: node.baseUrl || DEFAULT_BASE_URL }
+    : { name: "", prefix: "", baseUrl: DEFAULT_BASE_URL },
+    [node]
+  );
+  const [formData, setFormData] = useState(defaultFormData);
   const [submitting, setSubmitting] = useState(false);
-  const [checkKey, setCheckKey] = useState("");
-  const [checkModelId, setCheckModelId] = useState("");
-  const [validating, setValidating] = useState(false);
-  const [validationResult, setValidationResult] = useState(null);
+  const [{ checkKey, checkModelId, validating, validationResult }, dispatchValidation] = useReducer(validationReducer, { checkKey: "", checkModelId: "", validating: false, validationResult: null });
 
+  const prevIsOpenRef = useRef(isOpen);
   useEffect(() => {
-    if (!isOpen) return;
-    setValidationResult(null);
-    setCheckKey("");
-    setCheckModelId("");
-    if (isEdit) {
-      setFormData({
-        name: node.name || "",
-        prefix: node.prefix || "",
-        baseUrl: node.baseUrl || DEFAULT_BASE_URL,
-      });
-    } else {
-      setFormData({ name: "", prefix: "", baseUrl: DEFAULT_BASE_URL });
+    if (isOpen && !prevIsOpenRef.current) {
+      setFormData(defaultFormData);
+      dispatchValidation({ type: 'RESET' });
     }
-  }, [isOpen, isEdit, node]);
+    prevIsOpenRef.current = isOpen;
+  }, [isOpen, defaultFormData]);
 
   const handleSubmit = async () => {
     if (!formData.name.trim() || !formData.prefix.trim() || !formData.baseUrl.trim()) return;
@@ -67,7 +88,7 @@ export default function AddCustomEmbeddingModal({ isOpen, onClose, onCreated, on
   };
 
   const handleValidate = async () => {
-    setValidating(true);
+    dispatchValidation({ type: 'VALIDATING' });
     try {
       const res = await fetch("/api/provider-nodes/validate", {
         method: "POST",
@@ -80,32 +101,12 @@ export default function AddCustomEmbeddingModal({ isOpen, onClose, onCreated, on
         }),
       });
       const data = await res.json();
-      setValidationResult(data);
+      dispatchValidation({ type: 'SET_RESULT', payload: data });
     } catch {
-      setValidationResult({ valid: false, error: "Network error" });
-    } finally {
-      setValidating(false);
+      dispatchValidation({ type: 'SET_RESULT', payload: { valid: false, error: "Network error" } });
     }
   };
 
-  const renderValidationResult = () => {
-    if (!validationResult) return null;
-    const { valid, error, dimensions } = validationResult;
-    if (valid) {
-      return (
-        <>
-          <Badge variant="success">Valid</Badge>
-          {dimensions && <span className="text-sm text-text-muted">{dimensions} dims</span>}
-        </>
-      );
-    }
-    return (
-      <div className="flex flex-col gap-1">
-        <Badge variant="error">Invalid</Badge>
-        {error && <span className="text-sm text-red-500">{error}</span>}
-      </div>
-    );
-  };
 
   return (
     <Modal isOpen={isOpen} title={isEdit ? "Edit Custom Embedding" : "Add Custom Embedding"} onClose={onClose}>
@@ -135,12 +136,12 @@ export default function AddCustomEmbeddingModal({ isOpen, onClose, onCreated, on
           label="API Key (for Check)"
           type="password"
           value={checkKey}
-          onChange={(e) => setCheckKey(e.target.value)}
+          onChange={(e) => dispatchValidation({ type: 'SET_KEY', payload: e.target.value })}
         />
         <Input
           label="Model ID (for Check)"
           value={checkModelId}
-          onChange={(e) => setCheckModelId(e.target.value)}
+          onChange={(e) => dispatchValidation({ type: 'SET_MODEL_ID', payload: e.target.value })}
           placeholder="e.g. voyage-3, embed-english-v3.0, text-embedding-3-small"
           hint="Required for validation. Will send a test embeddings request."
         />
@@ -152,7 +153,7 @@ export default function AddCustomEmbeddingModal({ isOpen, onClose, onCreated, on
           >
             {validating ? "Checking..." : "Check"}
           </Button>
-          {renderValidationResult()}
+          <ValidationResult result={validationResult} />
         </div>
         <div className="flex gap-2">
           <Button

@@ -1,11 +1,15 @@
 import { AI_PROVIDERS } from "../shared/constants/providers.js";
 
+// Build name→id lookup map once at module scope
+const PROVIDER_NAME_MAP = new Map();
+for (const e of Object.values(AI_PROVIDERS)) { if (e.name) PROVIDER_NAME_MAP.set(e.name.toLowerCase(), e.id); }
+
 /**
  * Detect xAI Grok models by id pattern (grok-*, Grok_*, etc).
  * @param {string} modelId
  * @returns {boolean}
  */
-export function isXaiModel(modelId) {
+function isXaiModel(modelId) {
   return typeof modelId === "string" && /^grok[-_]/i.test(modelId.trim());
 }
 
@@ -18,10 +22,7 @@ export function normalizeProviderId(provider) {
   const slug = trimmed.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   if (AI_PROVIDERS[slug]) return slug;
 
-  const providerByName = Object.values(AI_PROVIDERS).find(
-    (entry) => entry.name?.toLowerCase() === trimmed.toLowerCase()
-  );
-  return providerByName?.id || trimmed;
+  return PROVIDER_NAME_MAP.get(trimmed.toLowerCase()) || trimmed;
 }
 
 export function normalizeProviderSpecificData(provider, body = {}, providerSpecificData = null) {

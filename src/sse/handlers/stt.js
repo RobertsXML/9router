@@ -13,8 +13,7 @@ import * as log from "../utils/logger.js";
 // Providers requiring credentials for STT
 const CREDENTIALED_PROVIDERS = new Set(
   Object.entries(AI_PROVIDERS)
-    .filter(([, p]) => p.serviceKinds?.includes("stt") && !p.noAuth && p.sttConfig?.authType !== "none")
-    .map(([id]) => id)
+    .flatMap(([id, p]) => p.serviceKinds?.includes("stt") && !p.noAuth && p.sttConfig?.authType !== "none" ? [id] : [])
 );
 
 export async function handleStt(request) {
@@ -58,6 +57,7 @@ export async function handleStt(request) {
   let lastStatus = null;
 
   while (true) {
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential fallback loop, each iteration excludes the previous account
     const credentials = await getProviderCredentials(provider, excludeConnectionIds, model);
 
     if (!credentials || credentials.allRateLimited) {

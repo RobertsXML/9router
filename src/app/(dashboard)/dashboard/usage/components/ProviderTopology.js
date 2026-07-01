@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useEffect, useCallback, useRef } from "react";
+import Image from "next/image";
 import PropTypes from "prop-types";
 import {
   ReactFlow,
@@ -48,7 +49,7 @@ function ProviderNode({ data }) {
         style={{ backgroundColor: `${color}15` }}
       >
         {!imgError ? (
-          <img src={imageUrl} alt={label} className="w-6 h-6 rounded-sm object-contain" onError={() => setImgError(true)} />
+          <Image src={imageUrl} alt={label} width={24} height={24} className="w-6 h-6 rounded-sm object-contain" unoptimized onError={() => setImgError(true)} />
         ) : (
           <span className="text-sm font-bold" style={{ color }}>{textIcon}</span>
         )}
@@ -86,7 +87,7 @@ function RouterNode({ data }) {
       <Handle type="source" position={Position.Left} id="left" className="!bg-transparent !border-0 !w-0 !h-0" />
       <Handle type="source" position={Position.Right} id="right" className="!bg-transparent !border-0 !w-0 !h-0" />
 
-      <img src="/favicon.svg" alt="9Router" className="w-6 h-6 mr-2" />
+      <Image src="/favicon.svg" alt="9Router" width={24} height={24} className="w-6 h-6 mr-2" />
       <span className="text-sm font-bold text-primary">9Router</span>
       {data.activeCount > 0 && (
         <span className="ml-2 px-1.5 py-0.5 rounded-full bg-primary text-white text-xs font-bold">
@@ -195,10 +196,17 @@ function buildLayout(providers, activeSet, lastSet, errorSet) {
   return { nodes, edges };
 }
 
-export default function ProviderTopology({ providers = [], activeRequests = [], lastProvider = "", errorProvider = "" }) {
+const fitOpts = { padding: 0.2, duration: 200 };
+
+const EMPTY_PROVIDERS = [];
+const EMPTY_ACTIVE_REQUESTS = [];
+
+function extractProviderName(r) { const p = r.provider?.toLowerCase(); return p ? [p] : []; }
+
+export default function ProviderTopology({ providers = EMPTY_PROVIDERS, activeRequests = EMPTY_ACTIVE_REQUESTS, lastProvider = "", errorProvider = "" }) {
   // Serialize to stable string keys so useMemo only re-runs when values actually change
   const activeKey = useMemo(
-    () => activeRequests.map((r) => r.provider?.toLowerCase()).filter(Boolean).sort().join(","),
+    function computeActiveKey() { return activeRequests.flatMap(extractProviderName).sort().join(","); },
     [activeRequests]
   );
   const lastKey = lastProvider?.toLowerCase() || "";
@@ -213,27 +221,27 @@ export default function ProviderTopology({ providers = [], activeRequests = [], 
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
-    const seen = firstSeenRef.current;
-    const now = Date.now();
-    for (const p of rawActiveSet) {
-      if (!seen[p]) seen[p] = now;
-    }
-    for (const p of Object.keys(seen)) {
-      if (!rawActiveSet.has(p)) delete seen[p];
-    }
-  }, [rawActiveSet]);
-
-  useEffect(() => {
     if (rawActiveSet.size === 0) return;
     const id = setInterval(() => setTick((t) => t + 1), FE_ACTIVE_TICK_MS);
     return () => clearInterval(id);
   }, [rawActiveSet]);
 
   const activeSet = useMemo(() => {
+    void tick; // force re-evaluation when tick changes (expired timeout filtering)
+    const seen = firstSeenRef.current;
     const now = Date.now();
+    // Track firstSeen for new active providers
+    for (const p of rawActiveSet) {
+      if (!seen[p]) seen[p] = now;
+    }
+    // Remove providers no longer active
+    for (const p of Object.keys(seen)) {
+      if (!rawActiveSet.has(p)) delete seen[p];
+    }
+    // Filter out providers that have been active too long (BE stuck)
     const filtered = new Set();
     for (const p of rawActiveSet) {
-      const ts = firstSeenRef.current[p];
+      const ts = seen[p];
       if (!ts || now - ts < FE_ACTIVE_TIMEOUT_MS) filtered.add(p);
     }
     return filtered;
@@ -241,7 +249,7 @@ export default function ProviderTopology({ providers = [], activeRequests = [], 
 
   const { nodes, edges } = useMemo(
     () => buildLayout(providers, activeSet, lastSet, errorSet),
-    [providers, activeSet, lastKey, errorKey]
+    [providers, activeSet, lastSet, errorSet]
   );
 
   // Stable key — only remount when provider list changes
@@ -252,7 +260,6 @@ export default function ProviderTopology({ providers = [], activeRequests = [], 
 
   const rfInstance = useRef(null);
   const containerRef = useRef(null);
-  const fitOpts = { padding: 0.2, duration: 200 };
   const onInit = useCallback((instance) => {
     rfInstance.current = instance;
     setTimeout(() => instance.fitView(fitOpts), 50);

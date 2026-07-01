@@ -6,12 +6,13 @@ import { promisify } from "util";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
+import { withLocalAuth } from "@/app/api/_lib/auth";
 
 const execAsync = promisify(exec);
 
-const getDataDir = () => path.join(os.homedir(), ".local", "share", "kilo");
-const getAuthPath = () => path.join(getDataDir(), "auth.json");
-const getVscodeSettingsPath = () => path.join(os.homedir(), ".config", "Code", "User", "settings.json");
+const KILO_DATA_DIR = path.join(os.homedir(), ".local", "share", "kilo");
+const KILO_AUTH_PATH = path.join(KILO_DATA_DIR, "auth.json");
+const KILO_VSCODE_SETTINGS_PATH = path.join(os.homedir(), ".config", "Code", "User", "settings.json");
 
 const checkInstalled = async () => {
   try {
@@ -24,7 +25,7 @@ const checkInstalled = async () => {
     return true;
   } catch {
     try {
-      await fs.access(getAuthPath());
+      await fs.access(KILO_AUTH_PATH);
       return true;
     } catch {
       return false;
@@ -35,11 +36,9 @@ const checkInstalled = async () => {
 const readJson = async (filePath) => {
   try {
     const content = await fs.readFile(filePath, "utf-8");
-    // Tolerate JSONC (trailing commas) and treat unparseable files as "no config"
-    // rather than throwing a 500 that the UI misreads as "tool not installed".
     const stripped = content.replace(/,(\s*[}\]])/g, "$1");
     return JSON.parse(stripped);
-  } catch (error) {
+  } catch {
     return null;
   }
 };
@@ -52,82 +51,79 @@ const has9RouterConfig = (auth) => {
   return baseUrl.includes("localhost") || baseUrl.includes("127.0.0.1") || baseUrl.includes("9router");
 };
 
-export async function GET() {
+export const GET = withLocalAuth(async () => {
   try {
     const installed = await checkInstalled();
     if (!installed) {
       return NextResponse.json({ installed: false, settings: null, message: "Kilo Code CLI is not installed" });
     }
-    const auth = await readJson(getAuthPath());
+    const auth = await readJson(KILO_AUTH_PATH);
     return NextResponse.json({
       installed: true,
       settings: { auth: auth ? Object.keys(auth) : [] },
       has9Router: has9RouterConfig(auth),
-      authPath: getAuthPath(),
+      authPath: KILO_AUTH_PATH,
     });
   } catch (error) {
-    console.log("Error checking kilo settings:", error);
     return NextResponse.json({ error: "Failed to check kilo settings" }, { status: 500 });
   }
-}
+});
 
-export async function POST(request) {
+export const POST = withLocalAuth(async (request) => {
   try {
     const { baseUrl, apiKey, model } = await request.json();
     if (!baseUrl || !apiKey || !model) {
       return NextResponse.json({ error: "baseUrl, apiKey and model are required" }, { status: 400 });
     }
 
-    await fs.mkdir(getDataDir(), { recursive: true });
+    await fs.mkdir(KILO_DATA_DIR, { recursive: true });
 
     const normalizedBaseUrl = baseUrl.endsWith("/v1") ? baseUrl : `${baseUrl}/v1`;
 
-    const auth = (await readJson(getAuthPath())) || {};
+    const auth = (await readJson(KILO_AUTH_PATH)) || {};
     auth["openai-compatible"] = {
       type: "api-key",
       apiKey,
       baseUrl: normalizedBaseUrl,
       model,
     };
-    await fs.writeFile(getAuthPath(), JSON.stringify(auth, null, 2));
+    await fs.writeFile(KILO_AUTH_PATH, JSON.stringify(auth, null, 2));
 
     // Best-effort: update VS Code extension settings
     try {
-      const vscode = (await readJson(getVscodeSettingsPath())) || {};
+      const vscode = (await readJson(KILO_VSCODE_SETTINGS_PATH)) || {};
       vscode["kilocode.customProvider"] = { name: "9Router", baseURL: normalizedBaseUrl, apiKey };
       vscode["kilocode.defaultModel"] = model;
-      await fs.writeFile(getVscodeSettingsPath(), JSON.stringify(vscode, null, 2));
+      await fs.writeFile(KILO_VSCODE_SETTINGS_PATH, JSON.stringify(vscode, null, 2));
     } catch { /* VS Code settings not writable */ }
 
-    return NextResponse.json({ success: true, message: "Kilo Code settings applied successfully!", authPath: getAuthPath() });
+    return NextResponse.json({ success: true, message: "Kilo Code settings applied successfully!", authPath: KILO_AUTH_PATH });
   } catch (error) {
-    console.log("Error updating kilo settings:", error);
     return NextResponse.json({ error: "Failed to update kilo settings" }, { status: 500 });
   }
-}
+});
 
-export async function DELETE() {
+export const DELETE = withLocalAuth(async () => {
   try {
-    const auth = await readJson(getAuthPath());
+    const auth = await readJson(KILO_AUTH_PATH);
     if (!auth) {
       return NextResponse.json({ success: true, message: "No settings file to reset" });
     }
     delete auth["openai-compatible"];
     delete auth["9router"];
-    await fs.writeFile(getAuthPath(), JSON.stringify(auth, null, 2));
+    await fs.writeFile(KILO_AUTH_PATH, JSON.stringify(auth, null, 2));
 
     try {
-      const vscode = await readJson(getVscodeSettingsPath());
+      const vscode = await readJson(KILO_VSCODE_SETTINGS_PATH);
       if (vscode) {
         delete vscode["kilocode.customProvider"];
         delete vscode["kilocode.defaultModel"];
-        await fs.writeFile(getVscodeSettingsPath(), JSON.stringify(vscode, null, 2));
+        await fs.writeFile(KILO_VSCODE_SETTINGS_PATH, JSON.stringify(vscode, null, 2));
       }
     } catch { /* ignore */ }
 
     return NextResponse.json({ success: true, message: "9Router settings removed from Kilo Code" });
   } catch (error) {
-    console.log("Error resetting kilo settings:", error);
     return NextResponse.json({ error: "Failed to reset kilo settings" }, { status: 500 });
   }
-}
+});

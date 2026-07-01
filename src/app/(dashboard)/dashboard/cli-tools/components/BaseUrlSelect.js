@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { UPDATER_CONFIG } from "@/shared/constants/config";
 
 const STORAGE_KEY = "9router.cliToolEndpointPresets";
@@ -67,33 +67,22 @@ export default function BaseUrlSelect({
   cloudUrl = "",
   withV1 = true,
 }) {
-  const [savedPresets, setSavedPresets] = useState([]);
-  const [mode, setMode] = useState("");
-  const [customInput, setCustomInput] = useState("");
-  const initializedRef = useRef(false);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
 
-  useEffect(() => {
-    setSavedPresets(readSavedPresets());
-  }, []);
+  const [savedPresets, setSavedPresets] = useState(readSavedPresets);
+  const [mode, setMode] = useState(() => {
+    const initOpts = buildOptions({ requiresExternalUrl, tunnelEnabled, tunnelPublicUrl, tailscaleEnabled, tailscaleUrl, cloudEnabled, cloudUrl, savedPresets: readSavedPresets(), withV1 });
+    const first = initOpts.find((o) => o.value !== CUSTOM_VALUE);
+    if (first) onChangeRef.current?.(first.url);
+    return first ? first.value : CUSTOM_VALUE;
+  });
+  const [customInput, setCustomInput] = useState("");
 
   const options = useMemo(
     () => buildOptions({ requiresExternalUrl, tunnelEnabled, tunnelPublicUrl, tailscaleEnabled, tailscaleUrl, cloudEnabled, cloudUrl, savedPresets, withV1 }),
     [requiresExternalUrl, tunnelEnabled, tunnelPublicUrl, tailscaleEnabled, tailscaleUrl, cloudEnabled, cloudUrl, savedPresets, withV1]
   );
-
-  // Always default to first option (127.0.0.1) on mount, ignore persisted value
-  useEffect(() => {
-    if (initializedRef.current) return;
-    if (options.length === 0) return;
-    initializedRef.current = true;
-    const first = options.find((o) => o.value !== CUSTOM_VALUE);
-    if (first) {
-      setMode(first.value);
-      onChange(first.url);
-    } else {
-      setMode(CUSTOM_VALUE);
-    }
-  }, [options, onChange]);
 
   const handleSelect = (e) => {
     const next = e.target.value;
@@ -105,7 +94,7 @@ export default function BaseUrlSelect({
       const name = window.prompt("Save endpoint as:", defaultName);
       if (!name?.trim()) return;
       const updated = [...savedPresets.filter((p) => p.name !== name.trim()), { name: name.trim(), baseUrl: trimmed }]
-        .sort((a, b) => a.name.localeCompare(b.name));
+        .toSorted((a, b) => a.name.localeCompare(b.name));
       setSavedPresets(updated);
       writeSavedPresets(updated);
       return;
@@ -147,6 +136,7 @@ export default function BaseUrlSelect({
         <select
           value={mode}
           onChange={handleSelect}
+          aria-label="Endpoint URL selection"
           className="flex-1 min-w-0 px-2 py-2 bg-surface rounded text-xs border border-border focus:outline-none focus:ring-1 focus:ring-primary/50 sm:py-1.5"
         >
           {options.map((o) => (
@@ -165,6 +155,7 @@ export default function BaseUrlSelect({
           type="text"
           value={customInput}
           onChange={handleCustomInput}
+          aria-label="Custom endpoint URL"
           placeholder={withV1 ? "https://example.com/v1" : "https://example.com"}
           className="w-full min-w-0 px-2 py-2 bg-surface rounded border border-border text-xs focus:outline-none focus:ring-1 focus:ring-primary/50 sm:py-1.5"
         />

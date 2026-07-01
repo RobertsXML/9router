@@ -11,7 +11,7 @@ function defaultDir() {
   return path.join(os.homedir(), `.${APP_NAME}`);
 }
 
-export function getDataDir() {
+function getDataDir() {
   const configured = process.env.DATA_DIR;
   if (!configured) return defaultDir();
 

@@ -88,19 +88,19 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
   const [isCooldown, setIsCooldown] = useState(false);
 
   // Get earliest model lock timestamp (useEffect handles the Date.now() comparison)
-  const modelLockUntil = Object.entries(connection)
-    .filter(([k]) => k.startsWith("modelLock_"))
-    .map(([, v]) => v)
-    .filter(v => !!v)
-    .sort()[0] || null;
+  const modelLockEntries = [];
+  for (const [k, v] of Object.entries(connection)) { if (k.startsWith("modelLock_") && v) modelLockEntries.push(v); }
+  const modelLockUntil = modelLockEntries.length
+    ? modelLockEntries.reduce((min, v) => (v < min ? v : min))
+    : null;
 
   useEffect(() => {
     const checkCooldown = () => {
-      const until = Object.entries(connection)
-        .filter(([k]) => k.startsWith("modelLock_"))
-        .map(([, v]) => v)
-        .filter(v => v && new Date(v).getTime() > Date.now())
-        .sort()[0] || null;
+      const untilEntries = [];
+      for (const [k, v] of Object.entries(connection)) { if (k.startsWith("modelLock_") && v && new Date(v).getTime() > Date.now()) untilEntries.push(v); }
+      const until = untilEntries.length
+        ? untilEntries.reduce((min, v) => (v < min ? v : min))
+        : null;
       setIsCooldown(!!until);
     };
 
@@ -109,7 +109,7 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [modelLockUntil]);
+  }, [connection, modelLockUntil]);
 
   // Determine effective status (override unavailable if cooldown expired)
   const effectiveStatus = (connection.testStatus === "unavailable" && !isCooldown)
@@ -141,6 +141,7 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
         {/* Priority arrows */}
         <div className="flex shrink-0 flex-col">
           <button
+            type="button"
             onClick={onMoveUp}
             disabled={isFirst}
             className={`p-0.5 rounded ${isFirst ? "text-text-muted/30 cursor-not-allowed" : "hover:bg-sidebar text-text-muted hover:text-primary"}`}
@@ -148,6 +149,7 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
             <span className="material-symbols-outlined text-sm">keyboard_arrow_up</span>
           </button>
           <button
+            type="button"
             onClick={onMoveDown}
             disabled={isLast}
             className={`p-0.5 rounded ${isLast ? "text-text-muted/30 cursor-not-allowed" : "hover:bg-sidebar text-text-muted hover:text-primary"}`}
@@ -216,6 +218,7 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
           {(proxyPools || []).length > 0 && (
             <div className="relative" ref={proxyDropdownRef}>
               <button
+                type="button"
                 onClick={() => setShowProxyDropdown((v) => !v)}
                 className={`flex w-full flex-col items-center rounded px-2 py-1 transition-colors hover:bg-black/5 dark:hover:bg-white/5 ${hasAnyProxy ? "text-primary" : "text-text-muted hover:text-primary"}`}
                 disabled={updatingProxy}
@@ -228,6 +231,7 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
               {showProxyDropdown && (
                 <div className="absolute right-0 top-full z-50 mt-1 max-w-[78vw] min-w-[160px] rounded-lg border border-border bg-bg py-1 shadow-lg">
                   <button
+                    type="button"
                     onClick={() => handleSelectProxy("__none__")}
                     className={`w-full text-left px-3 py-1.5 text-sm hover:bg-black/5 dark:hover:bg-white/5 ${!boundProxyPoolId ? "text-primary font-medium" : "text-text-main"}`}
                   >
@@ -235,6 +239,7 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
                   </button>
                   {(proxyPools || []).map((pool) => (
                     <button
+                      type="button"
                       key={pool.id}
                       onClick={() => handleSelectProxy(pool.id)}
                       className={`w-full text-left px-3 py-1.5 text-sm hover:bg-black/5 dark:hover:bg-white/5 ${boundProxyPoolId === pool.id ? "text-primary font-medium" : "text-text-main"}`}
@@ -249,6 +254,7 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
           {autoPing && (
             <Tooltip text={autoPingTooltip}>
               <button
+                type="button"
                 onClick={() => autoPing.onToggle(!autoPing.on)}
                 className={`flex w-full flex-col items-center rounded px-2 py-1 transition-colors hover:bg-black/5 dark:hover:bg-white/5 ${autoPing.on ? "text-primary" : "text-text-muted hover:text-primary"}`}
               >
@@ -257,11 +263,11 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
               </button>
             </Tooltip>
           )}
-          <button onClick={onEdit} className="flex flex-col items-center rounded px-2 py-1 text-text-muted hover:bg-black/5 hover:text-primary dark:hover:bg-white/5">
+          <button type="button" onClick={onEdit} className="flex flex-col items-center rounded px-2 py-1 text-text-muted hover:bg-black/5 hover:text-primary dark:hover:bg-white/5">
             <span className="material-symbols-outlined text-[18px]">edit</span>
             <span className="text-[10px] leading-tight">Edit</span>
           </button>
-          <button onClick={onDelete} className="flex flex-col items-center rounded px-2 py-1 text-red-500 hover:bg-red-500/10">
+          <button type="button" onClick={onDelete} className="flex flex-col items-center rounded px-2 py-1 text-red-500 hover:bg-red-500/10">
             <span className="material-symbols-outlined text-[18px]">delete</span>
             <span className="text-[10px] leading-tight">Delete</span>
           </button>

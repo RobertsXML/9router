@@ -1,5 +1,6 @@
 import { getAdapter } from "../driver.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
+import { getSettings } from "./settingsRepo.js";
 
 const DEFAULT_MAX_RECORDS = 200;
 const DEFAULT_BATCH_SIZE = 20;
@@ -13,7 +14,6 @@ let cachedConfigTs = 0;
 async function getObservabilityConfig() {
   if (cachedConfig && (Date.now() - cachedConfigTs) < CONFIG_CACHE_TTL_MS) return cachedConfig;
   try {
-    const { getSettings } = await import("./settingsRepo.js");
     const settings = await getSettings();
     const envEnabled = process.env.OBSERVABILITY_ENABLED !== "false";
     const enabled = typeof settings.enableObservability2 === "boolean"
@@ -43,14 +43,15 @@ let writeBuffer = [];
 let flushTimer = null;
 let isFlushing = false;
 
+const SENSITIVE_HEADER_KEYS = ["authorization", "x-api-key", "cookie", "token", "api-key"];
+
 function sanitizeHeaders(headers) {
   if (!headers || typeof headers !== "object") return {};
-  const sensitiveKeys = ["authorization", "x-api-key", "cookie", "token", "api-key"];
-  const sanitized = { ...headers };
-  for (const key of Object.keys(sanitized)) {
-    if (sensitiveKeys.some((s) => key.toLowerCase().includes(s))) delete sanitized[key];
-  }
-  return sanitized;
+  return Object.fromEntries(
+    Object.entries(headers).filter(
+      ([key]) => !SENSITIVE_HEADER_KEYS.some((s) => key.toLowerCase().includes(s))
+    )
+  );
 }
 
 function generateDetailId(model) {
@@ -76,14 +77,15 @@ async function flushToDatabase() {
     // Drain entire buffer (loop in case more pushed during await)
     while (writeBuffer.length > 0) {
       const items = writeBuffer.splice(0, writeBuffer.length);
-      const db = await getAdapter();
-      const config = await getObservabilityConfig();
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: buffer grows during await
+      const [db, config] = await Promise.all([getAdapter(), getObservabilityConfig()]);
 
       db.transaction(() => {
         for (const item of items) {
           if (!item.id) item.id = generateDetailId(item.model);
           if (!item.timestamp) item.timestamp = new Date().toISOString();
-          if (item.request?.headers) item.request.headers = sanitizeHeaders(item.request.headers);
+          const reqHeaders = item.request?.headers;
+          if (reqHeaders) item.request.headers = sanitizeHeaders(reqHeaders);
 
           const record = {
             id: item.id,

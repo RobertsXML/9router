@@ -1,4 +1,4 @@
-import { ROLE } from "../schema/index.js";
+import { ROLE } from "../schema/roles.js";
 
 // Build OpenAI delta carrying reasoning_content (optional leading assistant role)
 export function reasoningDelta(text, withRole = false) {

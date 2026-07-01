@@ -8,5 +8,5 @@ const resolveDisplay = (d) =>
   d.deprecationNotice === "RISK_NOTICE" ? { ...d, deprecationNotice: RISK_NOTICE } : d;
 
 export const PROVIDER_DISPLAY = Object.fromEntries(
-  REGISTRY.filter((r) => r.display).map((r) => [r.id, resolveDisplay(r.display)]),
+  REGISTRY.flatMap((r) => r.display ? [[r.id, resolveDisplay(r.display)]] : []),
 );

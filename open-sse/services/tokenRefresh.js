@@ -210,23 +210,19 @@ export function formatProviderCredentials(provider, credentials, log) {
 }
 
 export async function getAllAccessTokens(userInfo, log) {
-  const results = {};
+  if (!userInfo.connections || !Array.isArray(userInfo.connections)) return {};
 
-  if (userInfo.connections && Array.isArray(userInfo.connections)) {
-    for (const connection of userInfo.connections) {
-      if (connection.isActive && connection.provider) {
-        const token = await getAccessToken(connection.provider, {
-          refreshToken: connection.refreshToken
-        }, log);
+  const active = userInfo.connections.filter(c => c.isActive && c.provider);
+  const tokens = await Promise.all(
+    active.map(async (connection) => {
+      const token = await getAccessToken(connection.provider, {
+        refreshToken: connection.refreshToken
+      }, log);
+      return token ? [connection.provider, token] : null;
+    })
+  );
 
-        if (token) {
-          results[connection.provider] = token;
-        }
-      }
-    }
-  }
-
-  return results;
+  return Object.fromEntries(tokens.filter(Boolean));
 }
 
 export async function refreshWithRetry(refreshFn, maxRetries = 3, log = null) {
@@ -234,6 +230,7 @@ export async function refreshWithRetry(refreshFn, maxRetries = 3, log = null) {
     if (attempt > 0) {
       const delay = attempt * 1000;
       log?.debug?.("TOKEN_REFRESH", `Retry ${attempt}/${maxRetries} after ${delay}ms`);
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: retry backoff delay between attempts
       await new Promise(r => setTimeout(r, delay));
     }
 

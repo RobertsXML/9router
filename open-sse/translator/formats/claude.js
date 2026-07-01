@@ -1,6 +1,7 @@
 // Claude helper functions for translator
 import { DEFAULT_THINKING_CLAUDE_SIGNATURE } from "../../config/defaultThinkingSignature.js";
-import { ROLE, CLAUDE_BLOCK } from "../schema/index.js";
+import { ROLE } from "../schema/roles.js";
+import { CLAUDE_BLOCK } from "../schema/blocks.js";
 import { adjustMaxTokens } from "./maxTokens.js";
 import { applyCloaking } from "../../utils/claudeCloaking.js";
 import { resolveSessionId } from "../../utils/sessionManager.js";
@@ -283,19 +284,17 @@ export function prepareClaudeRequest(body, provider = null, apiKey = null, conne
     // Strip built-in tools (e.g. web_search_20250305) and normalize to Anthropic-native shape
     // (drop `type` field, fold `function.{name,description,parameters}`) for non-Anthropic providers
     if (provider !== "claude") {
-      body.tools = body.tools
-        .filter(tool => !tool.type || tool.type === "function")
-        .map(tool => {
+      body.tools = body.tools.reduce((acc, tool) => {
+        if (!tool.type || tool.type === "function") {
           if (tool.function) {
-            return {
-              name: tool.function.name,
-              description: tool.function.description,
-              input_schema: tool.function.parameters,
-            };
+            acc.push({ name: tool.function.name, description: tool.function.description, input_schema: tool.function.parameters });
+          } else {
+            const { type, ...rest } = tool;
+            acc.push(rest);
           }
-          const { type, ...rest } = tool;
-          return rest;
-        });
+        }
+        return acc;
+      }, []);
     }
 
     body.tools = body.tools.map((tool, i) => {

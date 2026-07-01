@@ -6,11 +6,12 @@ import { promisify } from "util";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
+import { withLocalAuth } from "@/app/api/_lib/auth";
 
 const execAsync = promisify(exec);
 
-const getDroidDir = () => path.join(os.homedir(), ".factory");
-const getDroidSettingsPath = () => path.join(getDroidDir(), "settings.json");
+const DROID_DIR = path.join(os.homedir(), ".factory");
+const DROID_SETTINGS_PATH = path.join(DROID_DIR, "settings.json");
 
 // Check if droid CLI is installed (via which/where or config file exists)
 const checkDroidInstalled = async () => {
@@ -24,7 +25,7 @@ const checkDroidInstalled = async () => {
     return true;
   } catch {
     try {
-      await fs.access(getDroidSettingsPath());
+      await fs.access(DROID_SETTINGS_PATH);
       return true;
     } catch {
       return false;
@@ -35,13 +36,10 @@ const checkDroidInstalled = async () => {
 // Read current settings.json
 const readSettings = async () => {
   try {
-    const settingsPath = getDroidSettingsPath();
-    const content = await fs.readFile(settingsPath, "utf-8");
-    // Tolerate JSONC (trailing commas) and treat unparseable files as "no config"
-    // rather than throwing a 500 that the UI misreads as "tool not installed".
+    const content = await fs.readFile(DROID_SETTINGS_PATH, "utf-8");
     const stripped = content.replace(/,(\s*[}\]])/g, "$1");
     return JSON.parse(stripped);
-  } catch (error) {
+  } catch {
     return null;
   }
 };
@@ -53,10 +51,10 @@ const has9RouterConfig = (settings) => {
 };
 
 // GET - Check droid CLI and read current settings
-export async function GET() {
+export const GET = withLocalAuth(async () => {
   try {
     const isInstalled = await checkDroidInstalled();
-    
+
     if (!isInstalled) {
       return NextResponse.json({
         installed: false,
@@ -71,38 +69,32 @@ export async function GET() {
       installed: true,
       settings,
       has9Router: has9RouterConfig(settings),
-      settingsPath: getDroidSettingsPath(),
+      settingsPath: DROID_SETTINGS_PATH,
     });
   } catch (error) {
-    console.log("Error checking droid settings:", error);
     return NextResponse.json({ error: "Failed to check droid settings" }, { status: 500 });
   }
-}
+});
 
 // POST - Update 9Router customModels (merge with existing settings)
-// Accepts either `model` (string, legacy single-model) or `models` (array of strings, multi-model)
-// Also accepts `activeModel` to set which model is active/primary
-export async function POST(request) {
+export const POST = withLocalAuth(async (request) => {
   try {
     const { baseUrl, apiKey, model, models, activeModel } = await request.json();
-    
+
     // Accept either `models` (array) or `model` (string, legacy)
     const modelsArray = Array.isArray(models) ? models.slice() : (typeof model === "string" ? [model] : []);
-    
+
     if (!baseUrl || modelsArray.length === 0) {
       return NextResponse.json({ error: "baseUrl and at least one model are required" }, { status: 400 });
     }
 
-    const droidDir = getDroidDir();
-    const settingsPath = getDroidSettingsPath();
-
     // Ensure directory exists
-    await fs.mkdir(droidDir, { recursive: true });
+    await fs.mkdir(DROID_DIR, { recursive: true });
 
     // Read existing settings or create new
     let settings = {};
     try {
-      const existingSettings = await fs.readFile(settingsPath, "utf-8");
+      const existingSettings = await fs.readFile(DROID_SETTINGS_PATH, "utf-8");
       settings = JSON.parse(existingSettings);
     } catch { /* No existing settings */ }
 
@@ -119,11 +111,10 @@ export async function POST(request) {
     const keyToUse = apiKey || "your_api_key";
 
     // Determine active model: prefer explicit activeModel, else first of modelsArray
-    // If activeModel is explicitly empty string, no model will be set as default
     let defaultIndex = 0;
     if (typeof activeModel === "string") {
       if (activeModel === "") {
-        defaultIndex = -1; // signal: don't set a default
+        defaultIndex = -1;
       } else {
         const idx = modelsArray.indexOf(activeModel);
         defaultIndex = idx >= 0 ? idx : 0;
@@ -131,7 +122,6 @@ export async function POST(request) {
     }
 
     // Add entries for all requested models
-    // The first one (index 0) will be the default if defaultIndex >= 0
     for (let i = 0; i < modelsArray.length; i++) {
       const m = modelsArray[i];
       if (!m || typeof m !== "string") continue;
@@ -150,36 +140,31 @@ export async function POST(request) {
 
     // Set default model if applicable
     if (defaultIndex >= 0 && settings.customModels[defaultIndex]) {
-      // Reorder so the default comes first
       const [defaultEntry] = settings.customModels.splice(defaultIndex, 1);
       settings.customModels.unshift({ ...defaultEntry, index: 0 });
-      // Re-index the rest
       settings.customModels.forEach((m, i) => { m.index = i; });
     }
 
     // Write settings
-    await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2));
+    await fs.writeFile(DROID_SETTINGS_PATH, JSON.stringify(settings, null, 2));
 
     return NextResponse.json({
       success: true,
       message: "Factory Droid settings applied successfully!",
-      settingsPath,
+      settingsPath: DROID_SETTINGS_PATH,
     });
   } catch (error) {
-    console.log("Error updating droid settings:", error);
     return NextResponse.json({ error: "Failed to update droid settings" }, { status: 500 });
   }
-}
+});
 
 // DELETE - Remove 9Router customModels only (keep other settings)
-export async function DELETE() {
+export const DELETE = withLocalAuth(async () => {
   try {
-    const settingsPath = getDroidSettingsPath();
-
     // Read existing settings
     let settings = {};
     try {
-      const existingSettings = await fs.readFile(settingsPath, "utf-8");
+      const existingSettings = await fs.readFile(DROID_SETTINGS_PATH, "utf-8");
       settings = JSON.parse(existingSettings);
     } catch (error) {
       if (error.code === "ENOENT") {
@@ -194,7 +179,7 @@ export async function DELETE() {
     // Remove 9Router customModels
     if (settings.customModels) {
       settings.customModels = settings.customModels.filter(m => !m.id?.startsWith("custom:9Router"));
-      
+
       // Remove customModels array if empty
       if (settings.customModels.length === 0) {
         delete settings.customModels;
@@ -202,14 +187,13 @@ export async function DELETE() {
     }
 
     // Write updated settings
-    await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2));
+    await fs.writeFile(DROID_SETTINGS_PATH, JSON.stringify(settings, null, 2));
 
     return NextResponse.json({
       success: true,
       message: "9Router settings removed successfully",
     });
   } catch (error) {
-    console.log("Error resetting droid settings:", error);
     return NextResponse.json({ error: "Failed to reset droid settings" }, { status: 500 });
   }
-}
+});

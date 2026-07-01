@@ -6,13 +6,14 @@ import { promisify } from "util";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
+import { withLocalAuth } from "@/app/api/_lib/auth";
 
 const execAsync = promisify(exec);
 
 const PROVIDER_NAME = "9router";
 
-const getDeepSeekDir = () => path.join(os.homedir(), ".deepseek");
-const getDeepSeekConfigPath = () => path.join(getDeepSeekDir(), "config.toml");
+const DEEPSEEK_DIR = path.join(os.homedir(), ".deepseek");
+const DEEPSEEK_CONFIG_PATH = path.join(DEEPSEEK_DIR, "config.toml");
 
 // Simple TOML parser for key = "value" and [section] patterns
 const parseToml = (content) => {
@@ -75,7 +76,7 @@ const checkDeepSeekInstalled = async () => {
         return true;
     } catch {
         try {
-            await fs.access(getDeepSeekConfigPath());
+            await fs.access(DEEPSEEK_CONFIG_PATH);
             return true;
         } catch {
             return false;
@@ -85,7 +86,7 @@ const checkDeepSeekInstalled = async () => {
 
 const readConfigToml = async () => {
     try {
-        return await fs.readFile(getDeepSeekConfigPath(), "utf-8");
+        return await fs.readFile(DEEPSEEK_CONFIG_PATH, "utf-8");
     } catch (error) {
         if (error.code === "ENOENT") return "";
         throw error;
@@ -102,7 +103,7 @@ const has9RouterConfig = (config) => {
     return /localhost|127\.0\.0\.1|0\.0\.0\.0/.test(openaiSection.base_url);
 };
 
-export async function GET() {
+export const GET = withLocalAuth(async () => {
     try {
         const installed = await checkDeepSeekInstalled();
         if (!installed) {
@@ -114,51 +115,46 @@ export async function GET() {
             installed: true,
             settings: config,
             has9Router: has9RouterConfig(config),
-            configPath: getDeepSeekConfigPath(),
+            configPath: DEEPSEEK_CONFIG_PATH,
         });
     } catch (error) {
-        console.log("Error checking deepseek-tui settings:", error);
         return NextResponse.json({ error: "Failed to check deepseek-tui settings" }, { status: 500 });
     }
-}
+});
 
-export async function POST(request) {
+export const POST = withLocalAuth(async (request) => {
     try {
         const { baseUrl, apiKey, model } = await request.json();
         if (!baseUrl || !model) {
             return NextResponse.json({ error: "baseUrl and model are required" }, { status: 400 });
         }
 
-        const dir = getDeepSeekDir();
-        await fs.mkdir(dir, { recursive: true });
+        await fs.mkdir(DEEPSEEK_DIR, { recursive: true });
 
         const newConfig = build9RouterConfig(baseUrl, apiKey || "sk_9router", model);
-        await fs.writeFile(getDeepSeekConfigPath(), newConfig);
+        await fs.writeFile(DEEPSEEK_CONFIG_PATH, newConfig);
 
         return NextResponse.json({
             success: true,
             message: "DeepSeek TUI settings applied successfully!",
-            configPath: getDeepSeekConfigPath(),
+            configPath: DEEPSEEK_CONFIG_PATH,
         });
     } catch (error) {
-        console.log("Error updating deepseek-tui settings:", error);
         return NextResponse.json({ error: "Failed to update deepseek-tui settings" }, { status: 500 });
     }
-}
+});
 
-export async function DELETE() {
+export const DELETE = withLocalAuth(async () => {
     try {
-        const configPath = getDeepSeekConfigPath();
         try {
-            await fs.access(configPath);
+            await fs.access(DEEPSEEK_CONFIG_PATH);
         } catch {
             return NextResponse.json({ success: true, message: "No config file to reset" });
         }
 
-        await fs.writeFile(configPath, DEFAULT_CONFIG);
+        await fs.writeFile(DEEPSEEK_CONFIG_PATH, DEFAULT_CONFIG);
         return NextResponse.json({ success: true, message: `${PROVIDER_NAME} config reset to DeepSeek defaults` });
     } catch (error) {
-        console.log("Error resetting deepseek-tui settings:", error);
         return NextResponse.json({ error: "Failed to reset deepseek-tui settings" }, { status: 500 });
     }
-}
+});

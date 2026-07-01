@@ -37,4 +37,4 @@ export class CodeBuddyExecutor extends DefaultExecutor {
   }
 }
 
-export default CodeBuddyExecutor;
+// ponytail: removed unused default export; add back if dynamic import pattern changes

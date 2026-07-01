@@ -1,8 +1,9 @@
-import { register } from "../index.js";
+import { register } from "../registry.js";
 import { FORMATS } from "../formats.js";
 import { adjustMaxTokens } from "../formats/maxTokens.js";
 import { encodeDataUri } from "../concerns/image.js";
-import { ROLE, GEMINI_ROLE, OPENAI_BLOCK } from "../schema/index.js";
+import { ROLE, GEMINI_ROLE } from "../schema/roles.js";
+import { OPENAI_BLOCK } from "../schema/blocks.js";
 import { budgetToEffort } from "../concerns/thinking.js";
 import { collapseTextParts } from "../concerns/message.js";
 

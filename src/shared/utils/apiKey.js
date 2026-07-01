@@ -1,6 +1,13 @@
 import crypto from "crypto";
 
-const API_KEY_SECRET = process.env.API_KEY_SECRET || "endpoint-proxy-api-key-secret";
+const API_KEY_SECRET = process.env.API_KEY_SECRET;
+
+function getApiKeySecret() {
+  if (!API_KEY_SECRET) {
+    throw new Error("API_KEY_SECRET environment variable is required");
+  }
+  return API_KEY_SECRET;
+}
 
 /**
  * Generate 6-char random keyId
@@ -19,7 +26,7 @@ function generateKeyId() {
  */
 function generateCrc(machineId, keyId) {
   return crypto
-    .createHmac("sha256", API_KEY_SECRET)
+    .createHmac("sha256", getApiKeySecret())
     .update(machineId + keyId)
     .digest("hex")
     .slice(0, 8);
@@ -46,7 +53,7 @@ export function generateApiKeyWithMachine(machineId) {
  * @param {string} apiKey
  * @returns {{ machineId: string, keyId: string, isNewFormat: boolean } | null}
  */
-export function parseApiKey(apiKey) {
+function parseApiKey(apiKey) {
   if (!apiKey || !apiKey.startsWith("sk-")) return null;
 
   const parts = apiKey.split("-");
@@ -75,7 +82,7 @@ export function parseApiKey(apiKey) {
  * @param {string} apiKey
  * @returns {boolean}
  */
-export function verifyApiKeyCrc(apiKey) {
+function verifyApiKeyCrc(apiKey) {
   const parsed = parseApiKey(apiKey);
   if (!parsed) return false;
   
@@ -91,7 +98,7 @@ export function verifyApiKeyCrc(apiKey) {
  * @param {string} apiKey
  * @returns {boolean}
  */
-export function isNewFormatKey(apiKey) {
+function isNewFormatKey(apiKey) {
   const parsed = parseApiKey(apiKey);
   return parsed?.isNewFormat === true;
 }

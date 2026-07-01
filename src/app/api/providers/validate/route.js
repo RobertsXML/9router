@@ -6,6 +6,12 @@ import { resolveOllamaLocalHost, resolveXiaomiTokenplanBaseUrl, PROVIDERS } from
 import { openaiToCommandCodeRequest } from "open-sse/translator/request/openai-to-commandcode.js";
 import { normalizeProviderId } from "@/lib/providerNormalization";
 
+function randomHex(n) {
+  const a = new Uint8Array(n);
+  crypto.getRandomValues(a);
+  return Array.from(a, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 // Probe a webSearch/webFetch provider using its searchConfig/fetchConfig.
 // Returns true if API key is accepted (status !== 401 && !== 403).
 async function probeWebProvider(provider, apiKey) {
@@ -372,7 +378,7 @@ export async function POST(request) {
         case "nvidia": {
           const endpoints = {
             ...Object.fromEntries(
-              Object.entries(PROVIDERS).filter(([, t]) => t.validateUrl).map(([id, t]) => [id, t.validateUrl])
+              Object.entries(PROVIDERS).reduce((acc, [id, t]) => { if (t.validateUrl) acc.push([id, t.validateUrl]); return acc; }, [])
             ),
             // dynamic URLs (depend on providerSpecificData) — kept inline
             "ollama-local": `${resolveOllamaLocalHost({ providerSpecificData })}/api/tags`,
@@ -488,11 +494,6 @@ export async function POST(request) {
         case "grok-web": {
           const token = apiKey.startsWith("sso=") ? apiKey.slice(4) : apiKey;
           // Cloudflare-bypass: send POST with same browser fingerprint headers as GrokWebExecutor
-          const randomHex = (n) => {
-            const a = new Uint8Array(n);
-            crypto.getRandomValues(a);
-            return Array.from(a, (b) => b.toString(16).padStart(2, "0")).join("");
-          };
           const statsigId = Buffer.from("e:TypeError: Cannot read properties of null (reading 'children')").toString("base64");
           const traceId = randomHex(16);
           const spanId = randomHex(8);

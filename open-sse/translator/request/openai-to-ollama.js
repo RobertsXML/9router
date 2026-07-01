@@ -1,8 +1,9 @@
-import { register } from "../index.js";
+import { register } from "../registry.js";
 import { FORMATS } from "../formats.js";
 import { parseDataUri } from "../concerns/image.js";
 import { safeParseJSON } from "../concerns/json.js";
-import { ROLE, OPENAI_BLOCK } from "../schema/index.js";
+import { ROLE } from "../schema/roles.js";
+import { OPENAI_BLOCK } from "../schema/blocks.js";
 
 /**
  * Convert OpenAI request to Ollama format
@@ -102,16 +103,19 @@ function normalizeMessages(messages) {
       const content = normalizeContent(msg.content) || "";
       
       // Convert OpenAI tool_calls format to Ollama format
-      const ollamaToolCalls = msg.tool_calls.map(tc => ({
-        type: OPENAI_BLOCK.FUNCTION,
-        function: {
-          index: tc.index || 0,
-          name: tc.function?.name || "",
-          arguments: typeof tc.function?.arguments === "string" 
-            ? safeParseJSON(tc.function.arguments || "{}", {})
-            : tc.function?.arguments || {}
-        }
-      }));
+      const ollamaToolCalls = msg.tool_calls.map(tc => {
+        const fn = tc.function;
+        return {
+          type: OPENAI_BLOCK.FUNCTION,
+          function: {
+            index: tc.index || 0,
+            name: fn?.name || "",
+            arguments: typeof fn?.arguments === "string"
+              ? safeParseJSON(fn.arguments || "{}", {})
+              : fn?.arguments || {}
+          }
+        };
+      });
 
       result.push({
         role: ROLE.ASSISTANT,
@@ -155,9 +159,7 @@ function normalizeContent(content) {
 
   if (Array.isArray(content)) {
     // Extract text from content array
-    const textParts = content
-      .filter(block => block && block.type === OPENAI_BLOCK.TEXT && block.text)
-      .map(block => block.text);
+    const textParts = content.reduce((acc, block) => { if (block && block.type === OPENAI_BLOCK.TEXT && block.text) acc.push(block.text); return acc; }, []);
 
     return textParts.join("\n") || "";
   }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useEffectEvent } from "react";
 import { createPortal } from "react-dom";
 
 const FEATURES = [
@@ -18,19 +18,20 @@ const BULLETS = [
 const NINE_REMOTE_URL = "https://9remote.cc";
 
 export default function NineRemotePromoModal({ isOpen, onClose }) {
+  const handleClose = useEffectEvent(() => onClose());
   useEffect(() => {
     if (!isOpen) return;
     document.body.style.overflow = "hidden";
-    const onEsc = (e) => { if (e.key === "Escape") onClose(); };
+    const onEsc = (e) => { if (e.key === "Escape") handleClose(); };
     document.addEventListener("keydown", onEsc);
     return () => { document.body.style.overflow = ""; document.removeEventListener("keydown", onEsc); };
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px] fade-in" onClick={onClose} />
+      <button type="button" className="absolute inset-0 bg-black/50 backdrop-blur-[2px] fade-in" onClick={onClose} aria-label="Close modal" />
 
       <div className="relative w-full max-w-sm rounded-[14px] overflow-hidden shadow-[var(--shadow-elev)] fade-in flex flex-col bg-surface border border-border-subtle">
         {/* Header */}
@@ -42,6 +43,7 @@ export default function NineRemotePromoModal({ isOpen, onClose }) {
             <span className="text-xs font-bold uppercase tracking-wider text-primary font-mono">9Remote</span>
           </div>
           <button
+            type="button"
             onClick={onClose}
             className="p-1.5 rounded-[10px] text-text-muted hover:bg-surface-2 hover:text-text-main transition-colors"
           >
@@ -85,6 +87,7 @@ export default function NineRemotePromoModal({ isOpen, onClose }) {
 
           {/* CTA */}
           <button
+            type="button"
             onClick={() => window.open(NINE_REMOTE_URL, "_blank")}
             className="w-full py-3 flex items-center justify-center gap-2 text-sm font-semibold text-white rounded-[10px] bg-primary hover:bg-primary-hover shadow-[var(--shadow-warm)] active:scale-[0.98] transition-all"
           >

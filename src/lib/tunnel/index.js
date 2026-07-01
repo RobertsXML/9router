@@ -39,8 +39,6 @@ export {
   startDaemonWithPassword,
   TAILSCALE_SOCKET,
 } from "./tailscale/tailscale.js";
-export { probeUrlAlive as probeTailscaleAlive } from "./tailscale/healthCheck.js";
-
 // Shared
 export { loadState, generateShortId } from "./shared/state.js";
 export { checkInternet } from "./shared/internetCheck.js";

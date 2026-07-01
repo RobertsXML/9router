@@ -1,8 +1,6 @@
 // OpenAI helper functions for translator
-import { ROLE, OPENAI_BLOCK, CLAUDE_BLOCK, VALID_OPENAI_CONTENT_TYPES, VALID_OPENAI_MESSAGE_TYPES } from "../schema/index.js";
-
-// Re-export valid-type lists (moved to schema/blocks.js) to keep existing importers working.
-export { VALID_OPENAI_CONTENT_TYPES, VALID_OPENAI_MESSAGE_TYPES };
+import { ROLE } from "../schema/roles.js";
+import { OPENAI_BLOCK, CLAUDE_BLOCK, VALID_OPENAI_CONTENT_TYPES } from "../schema/blocks.js";
 
 // Filter messages to OpenAI standard format
 // Remove: thinking, redacted_thinking, signature, and other non-OpenAI blocks
@@ -38,7 +36,7 @@ export function filterToOpenAIFormat(body, opts = {}) {
         if (block.type === CLAUDE_BLOCK.THINKING || block.type === CLAUDE_BLOCK.REDACTED_THINKING) continue;
 
         // Only keep valid OpenAI content types
-        if (VALID_OPENAI_CONTENT_TYPES.includes(block.type)) {
+        if (VALID_OPENAI_CONTENT_TYPES.has(block.type)) {
           filteredContent.push(stripBlock(block));
         } else if (block.type === CLAUDE_BLOCK.TOOL_USE) {
           // Convert tool_use to tool_calls format (handled separately)

@@ -1,9 +1,19 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Card from "@/shared/components/Card";
 import PricingModal from "@/shared/components/PricingModal";
+
+function computePricingStats(pricing) {
+  if (!pricing) return { modelCount: 0, providerKeys: [] };
+  const providerKeys = Object.keys(pricing);
+  let modelCount = 0;
+  for (const key of providerKeys) {
+    modelCount += Object.keys(pricing[key]).length;
+  }
+  return { modelCount, providerKeys };
+}
 
 export default function PricingSettingsPage() {
   const router = useRouter();
@@ -34,21 +44,10 @@ export default function PricingSettingsPage() {
     loadPricing();
   };
 
-  // Count total models with pricing
-  const getModelCount = () => {
-    if (!currentPricing) return 0;
-    let count = 0;
-    for (const provider in currentPricing) {
-      count += Object.keys(currentPricing[provider]).length;
-    }
-    return count;
-  };
-
-  // Get providers list
-  const getProviders = () => {
-    if (!currentPricing) return [];
-    return Object.keys(currentPricing).sort();
-  };
+  const { modelCount, providerKeys } = useMemo(
+    () => computePricingStats(currentPricing),
+    [currentPricing]
+  );
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6">
@@ -61,6 +60,7 @@ export default function PricingSettingsPage() {
           </p>
         </div>
         <button
+          type="button"
           onClick={() => setShowModal(true)}
           className="px-4 py-2 bg-primary text-white rounded hover:bg-primary/90 transition-colors"
         >
@@ -75,7 +75,7 @@ export default function PricingSettingsPage() {
             Total Models
           </div>
           <div className="text-2xl font-bold mt-1">
-            {loading ? "..." : getModelCount()}
+            {loading ? "..." : modelCount}
           </div>
         </Card>
         <Card className="p-4">
@@ -83,7 +83,7 @@ export default function PricingSettingsPage() {
             Providers
           </div>
           <div className="text-2xl font-bold mt-1">
-            {loading ? "..." : getProviders().length}
+            {loading ? "..." : providerKeys.length}
           </div>
         </Card>
         <Card className="p-4">
@@ -130,6 +130,7 @@ export default function PricingSettingsPage() {
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-semibold">Current Pricing Overview</h2>
           <button
+            type="button"
             onClick={() => setShowModal(true)}
             className="text-primary hover:underline text-sm"
           >
@@ -141,7 +142,7 @@ export default function PricingSettingsPage() {
           <div className="text-center py-4 text-text-muted">Loading pricing data...</div>
         ) : currentPricing ? (
           <div className="space-y-3">
-            {Object.keys(currentPricing).slice(0, 5).map(provider => (
+            {providerKeys.slice(0, 5).map(provider => (
               <div key={provider} className="text-sm">
                 <span className="font-semibold">{provider.toUpperCase()}:</span>{" "}
                 <span className="text-text-muted">
@@ -149,9 +150,9 @@ export default function PricingSettingsPage() {
                 </span>
               </div>
             ))}
-            {Object.keys(currentPricing).length > 5 && (
+            {providerKeys.length > 5 && (
               <div className="text-sm text-text-muted">
-                + {Object.keys(currentPricing).length - 5} more providers
+                + {providerKeys.length - 5} more providers
               </div>
             )}
           </div>

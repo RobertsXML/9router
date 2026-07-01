@@ -10,23 +10,19 @@ export async function GET() {
   try {
     const modelAliases = await getModelAliases();
     const disabled = await getDisabledModels();
+    const disabledSets = {};
+    for (const [k, v] of Object.entries(disabled)) { if (Array.isArray(v)) disabledSets[k] = new Set(v); }
 
-    const models = AI_MODELS
-      .filter((m) => {
-        const alias = getProviderAlias(m.provider) || m.provider;
-        const list = disabled[alias] || disabled[m.provider] || [];
-        return !list.includes(m.model);
-      })
-      .map((m) => {
+    const models = [];
+    for (const m of AI_MODELS) {
+      const alias = getProviderAlias(m.provider) || m.provider;
+      const disabledSet = disabledSets[alias] || disabledSets[m.provider];
+      if (!disabledSet || !disabledSet.has(m.model)) {
         const fullModel = `${m.provider}/${m.model}`;
         const c = getCapabilitiesForModel(m.provider, m.model);
-        return {
-          ...m,
-          fullModel,
-          alias: modelAliases[fullModel] || m.model,
-          caps: { vision: c.vision, search: c.search, reasoning: c.reasoning },
-        };
-      });
+        models.push({ ...m, fullModel, alias: modelAliases[fullModel] || m.model, caps: { vision: c.vision, search: c.search, reasoning: c.reasoning } });
+      }
+    }
 
     return NextResponse.json({ models });
   } catch (error) {

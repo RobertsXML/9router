@@ -2,6 +2,7 @@
 
 import os from "os";
 import { execSync } from "child_process";
+import { withLocalAuth } from "@/app/api/_lib/auth";
 import { installTailscale, loadState, generateShortId } from "@/lib/tunnel";
 import { getCachedPassword, loadEncryptedPassword, initDbHooks } from "@/mitm/manager";
 import { getSettings, updateSettings } from "@/lib/localDb";
@@ -14,7 +15,7 @@ function hasBrew() {
   try { execSync("which brew", { stdio: "ignore", windowsHide: true, env: { ...process.env, PATH: EXTENDED_PATH } }); return true; } catch { return false; }
 }
 
-export async function POST(request) {
+export const POST = withLocalAuth(async (request) => {
   const body = await request.json().catch(() => ({}));
   const platform = os.platform();
   const isWindows = platform === "win32";
@@ -69,4 +70,4 @@ export async function POST(request) {
       "Connection": "keep-alive",
     },
   });
-}
+});

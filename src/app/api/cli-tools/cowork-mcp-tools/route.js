@@ -1,12 +1,19 @@
 "use server";
 
 import { NextResponse } from "next/server";
+import { withLocalAuth } from "@/app/api/_lib/auth";
 
 const TIMEOUT_MS = 8000;
 
 // Probe MCP server: initialize + tools/list. No auth header — works for authless servers.
 // OAuth servers return 401, signal client to skip tool listing.
 async function probeMcp(url) {
+  // Validate URL scheme to prevent following untrusted redirects
+  let parsed;
+  try { parsed = new URL(url); } catch { return { error: "Invalid URL", tools: [] }; }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    return { error: "Unsupported URL scheme", tools: [] };
+  }
   const headers = {
     "Content-Type": "application/json",
     "Accept": "application/json, text/event-stream",
@@ -16,6 +23,7 @@ async function probeMcp(url) {
   const timer = setTimeout(() => ac.abort(), TIMEOUT_MS);
   try {
     // Step 1: initialize
+    // eslint-disable-next-line react-doctor/untrusted-redirect-following -- redirect: "error" is set in options
     const initRes = await fetch(url, {
       method: "POST",
       headers,
@@ -24,6 +32,7 @@ async function probeMcp(url) {
         params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "9router", version: "1" } },
       }),
       signal: ac.signal,
+      redirect: "error",
     });
     if (initRes.status === 401 || initRes.status === 403) {
       return { requiresAuth: true, tools: [] };
@@ -38,19 +47,23 @@ async function probeMcp(url) {
     if (sessionId) listHeaders["mcp-session-id"] = sessionId;
 
     // Step 2: notifications/initialized (required by spec before tools/list)
+    // eslint-disable-next-line react-doctor/untrusted-redirect-following -- redirect: "error" is set in options
     await fetch(url, {
       method: "POST",
       headers: listHeaders,
       body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }),
       signal: ac.signal,
+      redirect: "error",
     }).catch(() => {});
 
     // Step 3: tools/list
+    // eslint-disable-next-line react-doctor/untrusted-redirect-following -- redirect: "error" is set in options
     const listRes = await fetch(url, {
       method: "POST",
       headers: listHeaders,
       body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
       signal: ac.signal,
+      redirect: "error",
     });
     if (listRes.status === 401 || listRes.status === 403) {
       return { requiresAuth: true, tools: [] };
@@ -81,15 +94,24 @@ async function probeMcp(url) {
   }
 }
 
-export async function POST(request) {
+export const POST = withLocalAuth(async (request) => {
   try {
     const { url } = await request.json();
     if (!url || typeof url !== "string") {
       return NextResponse.json({ error: "url required" }, { status: 400 });
+    }
+    // Validate URL protocol to prevent SSRF
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+        return NextResponse.json({ error: "Invalid URL protocol" }, { status: 400 });
+      }
+    } catch {
+      return NextResponse.json({ error: "Invalid URL" }, { status: 400 });
     }
     const result = await probeMcp(url);
     return NextResponse.json(result);
   } catch (e) {
     return NextResponse.json({ error: e.message, tools: [] }, { status: 500 });
   }
-}
+});

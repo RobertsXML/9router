@@ -1,8 +1,230 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useReducer, useCallback } from "react";
 import { Card, Button, Badge, Modal, Input, ModelSelectModal } from "@/shared/components";
 import Image from "next/image";
+
+const initialState = {
+  status: null,
+  loading: false,
+  startingStep: null,
+  showPasswordModal: false,
+  sudoPassword: "",
+  selectedApiKey: "",
+  message: null,
+  modelMappings: {},
+  modalOpen: false,
+  currentEditingAlias: null,
+  modelAliases: {},
+};
+
+const reducer = (state, action) => {
+  switch (action.type) {
+    case "setStatus": return { ...state, status: action.value };
+    case "setLoading": return { ...state, loading: action.value };
+    case "setStartingStep": return { ...state, startingStep: action.value };
+    case "setShowPasswordModal": return { ...state, showPasswordModal: action.value };
+    case "setSudoPassword": return { ...state, sudoPassword: action.value };
+    case "setSelectedApiKey": return { ...state, selectedApiKey: action.value };
+    case "setMessage": return { ...state, message: action.value };
+    case "setModelMappings": return { ...state, modelMappings: action.value };
+    case "updateModelMapping": return { ...state, modelMappings: { ...state.modelMappings, [action.alias]: action.value } };
+    case "setModalOpen": return { ...state, modalOpen: action.value };
+    case "setCurrentEditingAlias": return { ...state, currentEditingAlias: action.value };
+    case "setModelAliases": return { ...state, modelAliases: action.value };
+    case "resetPasswordModal": return { ...state, showPasswordModal: false, sudoPassword: "", message: null };
+    default: return state;
+  }
+};
+
+function AntigravityToolHeader({ tool, isRunning, isExpanded, onToggle }) {
+  return (
+    <button type="button" className="flex items-start justify-between gap-3 hover:cursor-pointer sm:items-center" onClick={onToggle} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}>
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="size-8 flex items-center justify-center shrink-0">
+          <Image
+            src="/providers/antigravity.png"
+            alt={tool.name}
+            width={32}
+            height={32}
+            className="size-8 object-contain rounded-lg"
+            sizes="32px"
+            onError={(e) => { e.target.style.display = "none"; }}
+          />
+        </div>
+        <div className="min-w-0">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <h3 className="font-medium text-sm">{tool.name}</h3>
+            {isRunning ? (
+              <Badge variant="success" size="sm">Active</Badge>
+            ) : (
+              <Badge variant="default" size="sm">Inactive</Badge>
+            )}
+          </div>
+          <p className="text-xs text-text-muted truncate">{tool.description}</p>
+        </div>
+      </div>
+      <span className={`material-symbols-outlined text-text-muted text-[20px] transition-transform ${isExpanded ? "rotate-180" : ""}`}>expand_more</span>
+    </button>
+  );
+}
+
+function MitmStatusIndicators({ status, startingStep }) {
+  return (
+    <div className="flex items-center gap-1">
+      {[
+        { key: "cert", label: "Cert", ok: status?.certExists },
+        { key: "server", label: "Server", ok: status?.running },
+        { key: "dns", label: "DNS", ok: status?.dnsConfigured },
+      ].map(({ key, label, ok }, i) => {
+        const isLoading = startingStep === key;
+        return (
+          <div key={key} className="flex items-center">
+            <div className="flex items-center gap-1 px-2 py-1 rounded-md">
+              {isLoading ? (
+                <span className="material-symbols-outlined text-[14px] text-primary animate-spin">progress_activity</span>
+              ) : (
+                <span className={`material-symbols-outlined text-[14px] ${ok ? "text-green-500" : "text-text-muted"}`}>
+                  {ok ? "check_circle" : "radio_button_unchecked"}
+                </span>
+              )}
+              <span className={`text-xs font-medium ${isLoading ? "text-primary" : ok ? "text-green-500" : "text-text-muted"}`}>
+                {label}
+              </span>
+            </div>
+            {i < 2 && <span className="material-symbols-outlined text-[12px] text-text-muted">arrow_forward</span>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function PasswordModalContent({ isOpen, sudoPassword, message, loading, dispatch, onConfirm }) {
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={() => dispatch({ type: "resetPasswordModal" })}
+      title="Sudo Password Required"
+      size="sm"
+    >
+      <div className="flex flex-col gap-4">
+        <div className="flex items-start gap-3 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+          <span className="material-symbols-outlined text-yellow-500 text-[20px]">warning</span>
+          <p className="text-xs text-text-muted">Required for SSL certificate and DNS configuration</p>
+        </div>
+
+        <Input
+          type="password"
+          placeholder="Enter sudo password"
+          value={sudoPassword}
+          onChange={(e) => dispatch({ type: "setSudoPassword", value: e.target.value })}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !loading) onConfirm();
+          }}
+        />
+
+        {message && (
+          <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-green-500/10 text-green-600" : "bg-red-500/10 text-red-600"}`}>
+            <span className="material-symbols-outlined text-[14px]">{message.type === "success" ? "check_circle" : "error"}</span>
+            <span>{message.text}</span>
+          </div>
+        )}
+
+        <div className="flex items-center justify-end gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => dispatch({ type: "resetPasswordModal" })}
+            disabled={loading}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={onConfirm}
+            loading={loading}
+          >
+            Confirm
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function ModelMappingSection({ apiKeys, effectiveApiKey, cloudEnabled, tool, modelMappings, hasActiveProviders, loading, dispatch, openModelSelector, onSaveMappings }) {
+  return (
+    <>
+      <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr_auto] sm:items-center sm:gap-2">
+        <span className="text-xs font-semibold text-text-main sm:text-right sm:text-sm">API Key</span>
+        <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
+        {apiKeys.length > 0 ? (
+          <select
+            value={effectiveApiKey}
+            onChange={(e) => dispatch({ type: "setSelectedApiKey", value: e.target.value })}
+            aria-label="Select API key"
+            className="w-full min-w-0 px-2 py-2 bg-surface rounded text-xs border border-border focus:outline-none focus:ring-1 focus:ring-primary/50 sm:py-1.5"
+          >
+            {apiKeys.map((key) => <option key={key.id} value={key.key}>{key.key}</option>)}
+          </select>
+        ) : (
+          <span className="min-w-0 rounded bg-surface/40 px-2 py-2 text-xs text-text-muted sm:py-1.5">
+            {cloudEnabled ? "No API keys - Create one in Keys page" : "sk_9router (default)"}
+          </span>
+        )}
+      </div>
+
+      {tool.defaultModels.map((model) => (
+        <div key={model.alias} className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr_auto] sm:items-center sm:gap-2">
+          <span className="text-xs font-semibold text-text-main sm:text-right sm:text-sm">{model.name}</span>
+          <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
+          <div className="relative w-full min-w-0">
+            <input
+              type="text"
+              value={modelMappings[model.alias] || ""}
+              onChange={(e) => dispatch({ type: "updateModelMapping", alias: model.alias, value: e.target.value })}
+              placeholder="provider/model-id"
+              aria-label={model.name}
+              className="w-full min-w-0 pl-2 pr-7 py-2 bg-surface rounded border border-border text-xs focus:outline-none focus:ring-1 focus:ring-primary/50 sm:py-1.5"
+            />
+            {modelMappings[model.alias] && (
+              <button
+                type="button"
+                onClick={() => dispatch({ type: "updateModelMapping", alias: model.alias, value: "" })}
+                className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-text-muted hover:text-red-500 rounded transition-colors"
+                title="Clear"
+              >
+                <span className="material-symbols-outlined text-[14px]">close</span>
+              </button>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => openModelSelector(model.alias)}
+            disabled={!hasActiveProviders}
+            className={`w-full sm:w-auto rounded border px-2 py-2 text-xs transition-colors sm:py-1.5 whitespace-nowrap sm:shrink-0 ${hasActiveProviders ? "bg-surface border-border text-text-main hover:border-primary cursor-pointer" : "opacity-50 cursor-not-allowed border-border"}`}
+          >
+            Select
+          </button>
+        </div>
+      ))}
+
+      <div className="grid grid-cols-1 gap-2 sm:flex sm:items-center">
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={onSaveMappings}
+          disabled={loading || Object.keys(modelMappings).length === 0}
+        >
+          <span className="material-symbols-outlined text-[14px] mr-1">save</span>
+          Save Mappings
+        </Button>
+      </div>
+    </>
+  );
+}
 
 export default function AntigravityToolCard({
   tool,
@@ -15,78 +237,33 @@ export default function AntigravityToolCard({
   cloudEnabled,
   initialStatus,
 }) {
-  const [status, setStatus] = useState(initialStatus || null);
-  const [loading, setLoading] = useState(false);
-  const [startingStep, setStartingStep] = useState(null); // "cert" | "server" | "dns" | null
-  const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [sudoPassword, setSudoPassword] = useState("");
-  const [selectedApiKey, setSelectedApiKey] = useState("");
-  const [message, setMessage] = useState(null);
-  const [modelMappings, setModelMappings] = useState({});
-  const [modalOpen, setModalOpen] = useState(false);
-  const [currentEditingAlias, setCurrentEditingAlias] = useState(null);
-  const [modelAliases, setModelAliases] = useState({});
+  const [{ status, loading, startingStep, showPasswordModal, sudoPassword, selectedApiKey, message, modelMappings, modalOpen, currentEditingAlias, modelAliases }, dispatch] =
+    useReducer(reducer, initialStatus, (s) => ({ ...initialState, status: s || null }));
 
-  useEffect(() => {
-    if (apiKeys?.length > 0 && !selectedApiKey) {
-      setSelectedApiKey(apiKeys[0].key);
-    }
-  }, [apiKeys, selectedApiKey]);
+  const effectiveApiKey = selectedApiKey || apiKeys?.[0]?.key || "";
 
-  useEffect(() => {
-    if (initialStatus) setStatus(initialStatus);
-  }, [initialStatus]);
-
-  useEffect(() => {
-    if (isExpanded && !status) {
-      fetchStatus();
-      loadSavedMappings();
-      fetchModelAliases();
-    }
-    if (isExpanded) {
-      loadSavedMappings();
-      fetchModelAliases();
-    }
-  }, [isExpanded]);
-
-  const loadSavedMappings = async () => {
-    try {
-      const res = await fetch("/api/cli-tools/antigravity-mitm/alias?tool=antigravity");
-      if (res.ok) {
-        const data = await res.json();
-        const aliases = data.aliases || {};
-
-        if (Object.keys(aliases).length > 0) {
-          setModelMappings(aliases);
-        }
+  const handleToggle = useCallback(() => {
+    if (!isExpanded) {
+      if (!status) {
+        fetch("/api/cli-tools/antigravity-mitm")
+          .then((r) => r.ok ? r.json() : null)
+          .then((data) => { if (data) dispatch({ type: "setStatus", value: data }); })
+          .catch(() => dispatch({ type: "setStatus", value: { running: false } }));
       }
-    } catch (error) {
-      console.log("Error loading saved mappings:", error);
+      fetch("/api/cli-tools/antigravity-mitm/alias?tool=antigravity")
+        .then((r) => r.ok ? r.json() : null)
+        .then((data) => {
+          const aliases = data?.aliases || {};
+          if (Object.keys(aliases).length > 0) dispatch({ type: "setModelMappings", value: aliases });
+        })
+        .catch(() => {});
+      fetch("/api/models/alias")
+        .then((r) => r.ok ? r.json() : null)
+        .then((data) => { if (data) dispatch({ type: "setModelAliases", value: data.aliases || {} }); })
+        .catch(() => {});
     }
-  };
-
-  const fetchModelAliases = async () => {
-    try {
-      const res = await fetch("/api/models/alias");
-      const data = await res.json();
-      if (res.ok) setModelAliases(data.aliases || {});
-    } catch (error) {
-      console.log("Error fetching model aliases:", error);
-    }
-  };
-
-  const fetchStatus = async () => {
-    try {
-      const res = await fetch("/api/cli-tools/antigravity-mitm");
-      if (res.ok) {
-        const data = await res.json();
-        setStatus(data);
-      }
-    } catch (error) {
-      console.log("Error fetching status:", error);
-      setStatus({ running: false });
-    }
-  };
+    onToggle();
+  }, [isExpanded, onToggle, status]);
 
   // MITM elevation is decided by the server OS, not by this browser's OS.
   const serverIsWindows = status?.isWin === true;
@@ -96,8 +273,8 @@ export default function AntigravityToolCard({
     if (canRunWithoutPassword) {
       doStart("");
     } else {
-      setShowPasswordModal(true);
-      setMessage(null);
+      dispatch({ type: "setShowPasswordModal", value: true });
+      dispatch({ type: "setMessage", value: null });
     }
   };
 
@@ -105,18 +282,18 @@ export default function AntigravityToolCard({
     if (canRunWithoutPassword) {
       doStop("");
     } else {
-      setShowPasswordModal(true);
-      setMessage(null);
+      dispatch({ type: "setShowPasswordModal", value: true });
+      dispatch({ type: "setMessage", value: null });
     }
   };
 
   const doStart = async (password) => {
-    setLoading(true);
-    setMessage(null);
+    dispatch({ type: "setLoading", value: true });
+    dispatch({ type: "setMessage", value: null });
     // Show steps progressing in order
-    setStartingStep("cert");
+    dispatch({ type: "setStartingStep", value: "cert" });
     try {
-      const keyToUse = selectedApiKey?.trim()
+      const keyToUse = effectiveApiKey?.trim()
         || (apiKeys?.length > 0 ? apiKeys[0].key : null)
         || (!cloudEnabled ? "sk_9router" : null);
 
@@ -128,26 +305,26 @@ export default function AntigravityToolCard({
 
       const data = await res.json();
       if (res.ok) {
-        setStartingStep(null);
-        setMessage({ type: "success", text: "MITM started" });
-        setShowPasswordModal(false);
-        setSudoPassword("");
+        dispatch({ type: "setStartingStep", value: null });
+        dispatch({ type: "setMessage", value: { type: "success", text: "MITM started" } });
+        dispatch({ type: "setShowPasswordModal", value: false });
+        dispatch({ type: "setSudoPassword", value: "" });
         fetchStatus();
       } else {
-        setStartingStep(null);
-        setMessage({ type: "error", text: data.error || "Failed to start" });
+        dispatch({ type: "setStartingStep", value: null });
+        dispatch({ type: "setMessage", value: { type: "error", text: data.error || "Failed to start" } });
       }
     } catch (error) {
-      setStartingStep(null);
-      setMessage({ type: "error", text: error.message });
+      dispatch({ type: "setStartingStep", value: null });
+      dispatch({ type: "setMessage", value: { type: "error", text: error.message } });
     } finally {
-      setLoading(false);
+      dispatch({ type: "setLoading", value: false });
     }
   };
 
   const doStop = async (password) => {
-    setLoading(true);
-    setMessage(null);
+    dispatch({ type: "setLoading", value: true });
+    dispatch({ type: "setMessage", value: null });
     try {
       const res = await fetch("/api/cli-tools/antigravity-mitm", {
         method: "DELETE",
@@ -157,23 +334,23 @@ export default function AntigravityToolCard({
 
       const data = await res.json();
       if (res.ok) {
-        setMessage({ type: "success", text: "MITM stopped" });
-        setShowPasswordModal(false);
-        setSudoPassword("");
+        dispatch({ type: "setMessage", value: { type: "success", text: "MITM stopped" } });
+        dispatch({ type: "setShowPasswordModal", value: false });
+        dispatch({ type: "setSudoPassword", value: "" });
         fetchStatus();
       } else {
-        setMessage({ type: "error", text: data.error || "Failed to stop" });
+        dispatch({ type: "setMessage", value: { type: "error", text: data.error || "Failed to stop" } });
       }
     } catch (error) {
-      setMessage({ type: "error", text: error.message });
+      dispatch({ type: "setMessage", value: { type: "error", text: error.message } });
     } finally {
-      setLoading(false);
+      dispatch({ type: "setLoading", value: false });
     }
   };
 
   const handleConfirmPassword = () => {
     if (!sudoPassword.trim()) {
-      setMessage({ type: "error", text: "Sudo password is required" });
+      dispatch({ type: "setMessage", value: { type: "error", text: "Sudo password is required" } });
       return;
     }
     if (status?.running) {
@@ -184,29 +361,19 @@ export default function AntigravityToolCard({
   };
 
   const openModelSelector = (alias) => {
-    setCurrentEditingAlias(alias);
-    setModalOpen(true);
+    dispatch({ type: "setCurrentEditingAlias", value: alias });
+    dispatch({ type: "setModalOpen", value: true });
   };
 
   const handleModelSelect = (model) => {
     if (currentEditingAlias) {
-      setModelMappings(prev => ({
-        ...prev,
-        [currentEditingAlias]: model.value,
-      }));
+      dispatch({ type: "updateModelMapping", alias: currentEditingAlias, value: model.value });
     }
   };
 
-  const handleModelMappingChange = (alias, value) => {
-    setModelMappings(prev => ({
-      ...prev,
-      [alias]: value,
-    }));
-  };
-
   const handleSaveMappings = async () => {
-    setLoading(true);
-    setMessage(null);
+    dispatch({ type: "setLoading", value: true });
+    dispatch({ type: "setMessage", value: null });
 
     try {
       const res = await fetch("/api/cli-tools/antigravity-mitm/alias", {
@@ -220,11 +387,11 @@ export default function AntigravityToolCard({
         throw new Error(data.error || "Failed to save mappings");
       }
 
-      setMessage({ type: "success", text: "Mappings saved!" });
+      dispatch({ type: "setMessage", value: { type: "success", text: "Mappings saved!" } });
     } catch (error) {
-      setMessage({ type: "error", text: error.message });
+      dispatch({ type: "setMessage", value: { type: "error", text: error.message } });
     } finally {
-      setLoading(false);
+      dispatch({ type: "setLoading", value: false });
     }
   };
 
@@ -232,68 +399,18 @@ export default function AntigravityToolCard({
 
   return (
     <Card padding="xs" className="overflow-hidden">
-      <div className="flex items-start justify-between gap-3 hover:cursor-pointer sm:items-center" onClick={onToggle}>
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="size-8 flex items-center justify-center shrink-0">
-            <Image
-              src="/providers/antigravity.png"
-              alt={tool.name}
-              width={32}
-              height={32}
-              className="size-8 object-contain rounded-lg"
-              sizes="32px"
-              onError={(e) => { e.target.style.display = "none"; }}
-            />
-          </div>
-          <div className="min-w-0">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <h3 className="font-medium text-sm">{tool.name}</h3>
-              {isRunning ? (
-                <Badge variant="success" size="sm">Active</Badge>
-              ) : (
-                <Badge variant="default" size="sm">Inactive</Badge>
-              )}
-            </div>
-            <p className="text-xs text-text-muted truncate">{tool.description}</p>
-          </div>
-        </div>
-        <span className={`material-symbols-outlined text-text-muted text-[20px] transition-transform ${isExpanded ? "rotate-180" : ""}`}>expand_more</span>
-      </div>
+      <AntigravityToolHeader tool={tool} isRunning={isRunning} isExpanded={isExpanded} onToggle={handleToggle} />
 
       {isExpanded && (
         <div className="mt-4 pt-4 border-t border-border flex flex-col gap-4">
           {/* Status indicators — ordered: Cert → Server → DNS */}
-          <div className="flex items-center gap-1">
-            {[
-              { key: "cert", label: "Cert", ok: status?.certExists },
-              { key: "server", label: "Server", ok: status?.running },
-              { key: "dns", label: "DNS", ok: status?.dnsConfigured },
-            ].map(({ key, label, ok }, i) => {
-              const isLoading = startingStep === key;
-              return (
-                <div key={key} className="flex items-center">
-                  <div className="flex items-center gap-1 px-2 py-1 rounded-md">
-                    {isLoading ? (
-                      <span className="material-symbols-outlined text-[14px] text-primary animate-spin">progress_activity</span>
-                    ) : (
-                      <span className={`material-symbols-outlined text-[14px] ${ok ? "text-green-500" : "text-text-muted"}`}>
-                        {ok ? "check_circle" : "radio_button_unchecked"}
-                      </span>
-                    )}
-                    <span className={`text-xs font-medium ${isLoading ? "text-primary" : ok ? "text-green-500" : "text-text-muted"}`}>
-                      {label}
-                    </span>
-                  </div>
-                  {i < 2 && <span className="material-symbols-outlined text-[12px] text-text-muted">arrow_forward</span>}
-                </div>
-              );
-            })}
-          </div>
+          <MitmStatusIndicators status={status} startingStep={startingStep} />
 
           {/* Start/Stop Button */}
           <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr_auto] sm:items-center sm:gap-2">
             {isRunning ? (
               <button
+                type="button"
                 onClick={handleStop}
                 disabled={loading}
                 className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-500 font-medium text-sm flex items-center gap-2 hover:bg-red-500/20 transition-colors disabled:opacity-50"
@@ -303,6 +420,7 @@ export default function AntigravityToolCard({
               </button>
             ) : (
               <button
+                type="button"
                 onClick={handleStart}
                 disabled={loading || !hasActiveProviders}
                 className="px-4 py-2 rounded-lg bg-primary/10 border border-primary/30 text-primary font-medium text-sm flex items-center gap-2 hover:bg-primary/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -322,69 +440,18 @@ export default function AntigravityToolCard({
 
           {/* When running: API Key + Model Mappings */}
           {isRunning && (
-            <>
-              <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr_auto] sm:items-center sm:gap-2">
-                <span className="text-xs font-semibold text-text-main sm:text-right sm:text-sm">API Key</span>
-                <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
-                {apiKeys.length > 0 ? (
-                  <select
-                    value={selectedApiKey}
-                    onChange={(e) => setSelectedApiKey(e.target.value)}
-                    className="w-full min-w-0 px-2 py-2 bg-surface rounded text-xs border border-border focus:outline-none focus:ring-1 focus:ring-primary/50 sm:py-1.5"
-                  >
-                    {apiKeys.map((key) => <option key={key.id} value={key.key}>{key.key}</option>)}
-                  </select>
-                ) : (
-                  <span className="min-w-0 rounded bg-surface/40 px-2 py-2 text-xs text-text-muted sm:py-1.5">
-                    {cloudEnabled ? "No API keys - Create one in Keys page" : "sk_9router (default)"}
-                  </span>
-                )}
-              </div>
-
-              {tool.defaultModels.map((model) => (
-                <div key={model.alias} className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr_auto] sm:items-center sm:gap-2">
-                  <span className="text-xs font-semibold text-text-main sm:text-right sm:text-sm">{model.name}</span>
-                  <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
-                  <div className="relative w-full min-w-0">
-                    <input
-                      type="text"
-                      value={modelMappings[model.alias] || ""}
-                      onChange={(e) => handleModelMappingChange(model.alias, e.target.value)}
-                      placeholder="provider/model-id"
-                      className="w-full min-w-0 pl-2 pr-7 py-2 bg-surface rounded border border-border text-xs focus:outline-none focus:ring-1 focus:ring-primary/50 sm:py-1.5"
-                    />
-                    {modelMappings[model.alias] && (
-                      <button
-                        onClick={() => handleModelMappingChange(model.alias, "")}
-                        className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-text-muted hover:text-red-500 rounded transition-colors"
-                        title="Clear"
-                      >
-                        <span className="material-symbols-outlined text-[14px]">close</span>
-                      </button>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => openModelSelector(model.alias)}
-                    disabled={!hasActiveProviders}
-                    className={`w-full sm:w-auto rounded border px-2 py-2 text-xs transition-colors sm:py-1.5 whitespace-nowrap sm:shrink-0 ${hasActiveProviders ? "bg-surface border-border text-text-main hover:border-primary cursor-pointer" : "opacity-50 cursor-not-allowed border-border"}`}
-                  >
-                    Select
-                  </button>
-                </div>
-              ))}
-
-              <div className="grid grid-cols-1 gap-2 sm:flex sm:items-center">
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={handleSaveMappings}
-                  disabled={loading || Object.keys(modelMappings).length === 0}
-                >
-                  <span className="material-symbols-outlined text-[14px] mr-1">save</span>
-                  Save Mappings
-                </Button>
-              </div>
-            </>
+            <ModelMappingSection
+              apiKeys={apiKeys}
+              effectiveApiKey={effectiveApiKey}
+              cloudEnabled={cloudEnabled}
+              tool={tool}
+              modelMappings={modelMappings}
+              hasActiveProviders={hasActiveProviders}
+              loading={loading}
+              dispatch={dispatch}
+              openModelSelector={openModelSelector}
+              onSaveMappings={handleSaveMappings}
+            />
           )}
 
           {/* Windows admin warning */}
@@ -412,64 +479,19 @@ export default function AntigravityToolCard({
       )}
 
       {/* Password Modal */}
-      <Modal
+      <PasswordModalContent
         isOpen={showPasswordModal}
-        onClose={() => {
-          setShowPasswordModal(false);
-          setSudoPassword("");
-          setMessage(null);
-        }}
-        title="Sudo Password Required"
-        size="sm"
-      >
-        <div className="flex flex-col gap-4">
-          <div className="flex items-start gap-3 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-            <span className="material-symbols-outlined text-yellow-500 text-[20px]">warning</span>
-            <p className="text-xs text-text-muted">Required for SSL certificate and DNS configuration</p>
-          </div>
-
-          <Input
-            type="password"
-            placeholder="Enter sudo password"
-            value={sudoPassword}
-            onChange={(e) => setSudoPassword(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !loading) handleConfirmPassword();
-            }}
-          />
-
-          {message && (
-            <div className={`flex items-center gap-2 px-2 py-1.5 rounded text-xs ${message.type === "success" ? "bg-green-500/10 text-green-600" : "bg-red-500/10 text-red-600"}`}>
-              <span className="material-symbols-outlined text-[14px]">{message.type === "success" ? "check_circle" : "error"}</span>
-              <span>{message.text}</span>
-            </div>
-          )}
-
-          <div className="flex items-center justify-end gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => { setShowPasswordModal(false); setSudoPassword(""); setMessage(null); }}
-              disabled={loading}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={handleConfirmPassword}
-              loading={loading}
-            >
-              Confirm
-            </Button>
-          </div>
-        </div>
-      </Modal>
+        sudoPassword={sudoPassword}
+        message={message}
+        loading={loading}
+        dispatch={dispatch}
+        onConfirm={handleConfirmPassword}
+      />
 
       {/* Model Select Modal */}
       <ModelSelectModal
         isOpen={modalOpen}
-        onClose={() => setModalOpen(false)}
+        onClose={() => dispatch({ type: "setModalOpen", value: false })}
         onSelect={handleModelSelect}
         selectedModel={currentEditingAlias ? modelMappings[currentEditingAlias] : null}
         activeProviders={activeProviders}

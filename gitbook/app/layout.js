@@ -1,5 +1,8 @@
+import { Inter } from "next/font/google";
 import { DOCS_CONFIG } from "@/constants/docsConfig";
 import "./globals.css";
+
+const inter = Inter({ subsets: ["latin"] });
 
 export const metadata = {
   title: DOCS_CONFIG.title,
@@ -9,11 +12,7 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-      </head>
-      <body className="bg-[#FCFBF9] text-[#6B7280]">
+      <body className={`bg-[#FCFBF9] text-[#6B7280] ${inter.className}`}>
         {children}
       </body>
     </html>

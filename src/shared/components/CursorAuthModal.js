@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useReducer } from "react";
 import PropTypes from "prop-types";
 import { Modal, Button, Input } from "@/shared/components";
 
@@ -8,20 +8,27 @@ import { Modal, Button, Input } from "@/shared/components";
  * Cursor Auth Modal
  * Auto-detect and import token from Cursor IDE's local SQLite database
  */
+function authReducer(state, action) {
+  switch (action.type) {
+    case 'DETECT_START': return { ...state, autoDetecting: true, error: null, autoDetected: false, windowsManual: false };
+    case 'DETECT_FOUND': return { ...state, autoDetecting: false, autoDetected: true };
+    case 'DETECT_WINDOWS': return { ...state, autoDetecting: false, windowsManual: true };
+    case 'DETECT_ERROR': return { ...state, autoDetecting: false, error: action.payload };
+    case 'IMPORT_START': return { ...state, importing: true, error: null };
+    case 'IMPORT_DONE': return { ...state, importing: false };
+    case 'IMPORT_ERROR': return { ...state, importing: false, error: action.payload };
+    case 'SET_ERROR': return { ...state, error: action.payload };
+    default: return state;
+  }
+}
+
 export default function CursorAuthModal({ isOpen, onSuccess, onClose }) {
   const [accessToken, setAccessToken] = useState("");
   const [machineId, setMachineId] = useState("");
-  const [error, setError] = useState(null);
-  const [importing, setImporting] = useState(false);
-  const [autoDetecting, setAutoDetecting] = useState(false);
-  const [autoDetected, setAutoDetected] = useState(false);
-  const [windowsManual, setWindowsManual] = useState(false);
+  const [{ error, importing, autoDetecting, autoDetected, windowsManual }, dispatchAuth] = useReducer(authReducer, { error: null, importing: false, autoDetecting: false, autoDetected: false, windowsManual: false });
 
   const runAutoDetect = async () => {
-    setAutoDetecting(true);
-    setError(null);
-    setAutoDetected(false);
-    setWindowsManual(false);
+    dispatchAuth({ type: 'DETECT_START' });
 
     try {
       const res = await fetch("/api/oauth/cursor/auto-import");
@@ -30,16 +37,14 @@ export default function CursorAuthModal({ isOpen, onSuccess, onClose }) {
       if (data.found) {
         setAccessToken(data.accessToken);
         setMachineId(data.machineId);
-        setAutoDetected(true);
+        dispatchAuth({ type: 'DETECT_FOUND' });
       } else if (data.windowsManual) {
-        setWindowsManual(true);
+        dispatchAuth({ type: 'DETECT_WINDOWS' });
       } else {
-        setError(data.error || "Could not auto-detect tokens");
+        dispatchAuth({ type: 'DETECT_ERROR', payload: data.error || "Could not auto-detect tokens" });
       }
     } catch (err) {
-      setError("Failed to auto-detect tokens");
-    } finally {
-      setAutoDetecting(false);
+      dispatchAuth({ type: 'DETECT_ERROR', payload: "Failed to auto-detect tokens" });
     }
   };
 
@@ -51,17 +56,16 @@ export default function CursorAuthModal({ isOpen, onSuccess, onClose }) {
 
   const handleImportToken = async () => {
     if (!accessToken.trim()) {
-      setError("Please enter an access token");
+      dispatchAuth({ type: 'SET_ERROR', payload: "Please enter an access token" });
       return;
     }
 
     if (!machineId.trim()) {
-      setError("Please enter a machine ID");
+      dispatchAuth({ type: 'SET_ERROR', payload: "Please enter a machine ID" });
       return;
     }
 
-    setImporting(true);
-    setError(null);
+    dispatchAuth({ type: 'IMPORT_START' });
 
     try {
       const res = await fetch("/api/oauth/cursor/import", {
@@ -82,9 +86,7 @@ export default function CursorAuthModal({ isOpen, onSuccess, onClose }) {
       onSuccess?.();
       onClose();
     } catch (err) {
-      setError(err.message);
-    } finally {
-      setImporting(false);
+      dispatchAuth({ type: 'IMPORT_ERROR', payload: err.message });
     }
   };
 
@@ -153,10 +155,11 @@ export default function CursorAuthModal({ isOpen, onSuccess, onClose }) {
 
             {/* Access Token Input */}
             <div>
-              <label className="block text-sm font-medium mb-2">
+              <label htmlFor="cursor-access-token" className="block text-sm font-medium mb-2">
                 Access Token <span className="text-red-500">*</span>
               </label>
               <textarea
+                id="cursor-access-token"
                 value={accessToken}
                 onChange={(e) => setAccessToken(e.target.value)}
                 placeholder="Access token will be auto-filled..."
@@ -167,10 +170,11 @@ export default function CursorAuthModal({ isOpen, onSuccess, onClose }) {
 
             {/* Machine ID Input */}
             <div>
-              <label className="block text-sm font-medium mb-2">
+              <label htmlFor="cursor-machine-id" className="block text-sm font-medium mb-2">
                 Machine ID <span className="text-red-500">*</span>
               </label>
               <Input
+                id="cursor-machine-id"
                 value={machineId}
                 onChange={(e) => setMachineId(e.target.value)}
                 placeholder="Machine ID will be auto-filled..."

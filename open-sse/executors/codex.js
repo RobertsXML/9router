@@ -14,6 +14,7 @@ import { resolveSessionId } from "../utils/sessionManager.js";
 
 // SSE error patterns inside 200-OK body that should trigger retry as if 503
 const CODEX_SSE_OVERLOADED_PATTERNS = ["server_is_overloaded", "service_unavailable_error"];
+const CODEX_SSE_OVERLOADED_RE = new RegExp(CODEX_SSE_OVERLOADED_PATTERNS.join("|"));
 const CODEX_SSE_PEEK_BYTES = 4096;
 
 // Server-generated item id prefixes that Codex /responses cannot resolve when store=false
@@ -164,9 +165,10 @@ export class CodexExecutor extends BaseExecutor {
    */
   async prefetchImages(body) {
     if (!Array.isArray(body?.input)) return;
-    for (const item of body.input) {
-      if (!Array.isArray(item.content)) continue;
-      const pending = item.content.map(async (c) => {
+    // Items are independent — prefetch all images in parallel
+    const itemsWithContent = body.input.filter(item => Array.isArray(item.content));
+    const allPending = itemsWithContent.map(item =>
+      Promise.all(item.content.map(async (c) => {
         if (c.type !== "image_url") return c;
         const url = typeof c.image_url === "string" ? c.image_url : c.image_url?.url;
         const detail = c.image_url?.detail || "auto";
@@ -174,14 +176,25 @@ export class CodexExecutor extends BaseExecutor {
         if (url.startsWith("data:")) return { type: "input_image", image_url: url, detail };
         const fetched = await fetchImageAsBase64(url, { timeoutMs: 15000 });
         return { type: "input_image", image_url: fetched?.url || url, detail };
-      });
-      item.content = await Promise.all(pending);
-    }
+      }))
+    );
+    const results = await Promise.all(allPending);
+    results.forEach((content, i) => { itemsWithContent[i].content = content; });
   }
 
   async execute(args) {
-    const imgCount = Array.isArray(args.body?.input) ? args.body.input.reduce((n, it) => n + (Array.isArray(it.content) ? it.content.filter(c => c.type === "image_url").length : 0), 0) : 0;
-    const inputLen = Array.isArray(args.body?.input) ? args.body.input.length : 0;
+    let imgCount = 0;
+    let inputLen = 0;
+    if (Array.isArray(args.body?.input)) {
+      inputLen = args.body.input.length;
+      for (const it of args.body.input) {
+        if (Array.isArray(it.content)) {
+          for (const c of it.content) {
+            if (c.type === "image_url") imgCount++;
+          }
+        }
+      }
+    }
     dbg("CODEX", `execute start | inputItems=${inputLen} | images=${imgCount} | sessionId=${this._currentSessionId || "pending"}`);
     if (imgCount > 0) {
       const t0 = Date.now();
@@ -197,7 +210,9 @@ export class CodexExecutor extends BaseExecutor {
     const { attempts, delayMs } = resolveRetryEntry(retryConfig[503]);
     let attempt = 0;
     while (true) {
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: retry loop, each attempt depends on previous result
       const result = await super.execute(args);
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: must check stream before deciding to retry
       const peek = await this._peekSseOverloaded(result.response);
       if (!peek.matched) {
         // Replace body with re-assembled stream (prefix bytes already read + rest)
@@ -242,11 +257,12 @@ export class CodexExecutor extends BaseExecutor {
     let matched = null;
     try {
       while (text.length < CODEX_SSE_PEEK_BYTES) {
+        // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: stream chunks must be read in order
         const { done, value } = await reader.read();
         if (done) break;
         chunks.push(value);
         text += decoder.decode(value, { stream: true });
-        const hit = CODEX_SSE_OVERLOADED_PATTERNS.find(p => text.includes(p));
+        const hit = (text.match(CODEX_SSE_OVERLOADED_RE) || [])[0] || null;
         if (hit) { matched = hit; break; }
       }
     } catch (e) {

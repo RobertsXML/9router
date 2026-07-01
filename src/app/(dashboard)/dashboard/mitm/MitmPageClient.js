@@ -1,32 +1,59 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useReducer, useCallback, useMemo } from "react";
 import { MITM_TOOLS } from "@/shared/constants/cliTools";
 import { getModelsByProviderId } from "@/shared/constants/models";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
 import { MitmServerCard, MitmToolCard } from "@/app/(dashboard)/dashboard/cli-tools/components";
 
+function dataReducer(state, action) {
+  switch (action.type) {
+    case 'SET_CONNECTIONS': return { ...state, connections: action.payload };
+    case 'SET_API_KEYS': return { ...state, apiKeys: action.payload };
+    case 'SET_ALIASES': return { ...state, modelAliases: action.payload };
+    case 'SET_CLOUD': return { ...state, cloudEnabled: action.payload };
+    default: return state;
+  }
+}
+
 export default function MitmPageClient() {
-  const [connections, setConnections] = useState([]);
-  const [apiKeys, setApiKeys] = useState([]);
-  const [modelAliases, setModelAliases] = useState({});
-  const [cloudEnabled, setCloudEnabled] = useState(false);
+  const [{ connections, apiKeys, modelAliases, cloudEnabled }, dispatchData] = useReducer(dataReducer, { connections: [], apiKeys: [], modelAliases: {}, cloudEnabled: false });
   const [expandedTool, setExpandedTool] = useState(null);
-  const [mitmStatus, setMitmStatus] = useState({ running: false, certExists: false, dnsStatus: {}, hasCachedPassword: false });
+  // eslint-disable-next-line react-doctor/no-derived-state -- apiMitmStatus is populated from API fetches in fetchMitmStatus, not derived from other state
+  const [apiMitmStatus, setApiMitmStatus] = useState({ running: false, certExists: false, dnsStatus: {}, hasCachedPassword: false });
+  const [dnsStatusOverride, setDnsStatusOverride] = useState(null);
+
+  const mitmStatus = useMemo(() => {
+    if (dnsStatusOverride === null) return apiMitmStatus;
+    return { ...apiMitmStatus, dnsStatus: dnsStatusOverride };
+  }, [apiMitmStatus, dnsStatusOverride]);
+
+  const fetchMitmStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/cli-tools/antigravity-mitm");
+      if (res.ok) {
+        const data = await res.json();
+        setApiMitmStatus(data);
+      }
+    } catch {
+      setApiMitmStatus({ running: false, certExists: false, dnsStatus: {} });
+    }
+  }, []);
 
   useEffect(() => {
     fetchConnections();
     fetchApiKeys();
     fetchAliases();
     fetchCloudSettings();
-  }, []);
+    fetchMitmStatus();
+  }, [fetchMitmStatus]);
 
   const fetchConnections = async () => {
     try {
       const res = await fetch("/api/providers");
       if (res.ok) {
         const data = await res.json();
-        setConnections(data.connections || []);
+        dispatchData({ type: 'SET_CONNECTIONS', payload: data.connections || [] });
       }
     } catch { /* ignore */ }
   };
@@ -36,7 +63,7 @@ export default function MitmPageClient() {
       const res = await fetch("/api/keys");
       if (res.ok) {
         const data = await res.json();
-        setApiKeys(data.keys || []);
+        dispatchData({ type: 'SET_API_KEYS', payload: data.keys || [] });
       }
     } catch { /* ignore */ }
   };
@@ -46,7 +73,7 @@ export default function MitmPageClient() {
       const res = await fetch("/api/models/alias");
       if (res.ok) {
         const data = await res.json();
-        setModelAliases(data.aliases || {});
+        dispatchData({ type: 'SET_ALIASES', payload: data.aliases || {} });
       }
     } catch { /* ignore */ }
   };
@@ -56,7 +83,7 @@ export default function MitmPageClient() {
       const res = await fetch("/api/settings");
       if (res.ok) {
         const data = await res.json();
-        setCloudEnabled(data.cloudEnabled || false);
+        dispatchData({ type: 'SET_CLOUD', payload: data.cloudEnabled || false });
       }
     } catch { /* ignore */ }
   };
@@ -87,7 +114,8 @@ export default function MitmPageClient() {
       <MitmServerCard
         apiKeys={apiKeys}
         cloudEnabled={cloudEnabled}
-        onStatusChange={setMitmStatus}
+        status={mitmStatus}
+        onRefresh={fetchMitmStatus}
       />
 
       {/* Tool Cards */}
@@ -108,7 +136,7 @@ export default function MitmPageClient() {
             hasActiveProviders={hasActiveProviders()}
             modelAliases={modelAliases}
             cloudEnabled={cloudEnabled}
-            onDnsChange={(data) => setMitmStatus(prev => ({ ...prev, dnsStatus: data.dnsStatus ?? prev.dnsStatus }))}
+            onDnsChange={(data) => setDnsStatusOverride(data.dnsStatus ?? null)}
           />
         ))}
       </div>

@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 export default function Footer() {
   return (
     <footer className="border-t border-[#3a2f27] bg-[#120f0d] pt-16 pb-8 px-6">
@@ -26,8 +28,8 @@ export default function Footer() {
           {/* Product */}
           <div className="flex flex-col gap-4">
             <h4 className="font-bold text-white">Product</h4>
-            <a className="text-gray-400 hover:text-[#f97815] text-sm transition-colors" href="#features">Features</a>
-            <a className="text-gray-400 hover:text-[#f97815] text-sm transition-colors" href="/dashboard">Dashboard</a>
+            <Link className="text-gray-400 hover:text-[#f97815] text-sm transition-colors" href="#features">Features</Link>
+            <Link className="text-gray-400 hover:text-[#f97815] text-sm transition-colors" href="/dashboard">Dashboard</Link>
             <a className="text-gray-400 hover:text-[#f97815] text-sm transition-colors" href="https://github.com/decolua/9router" target="_blank" rel="noopener noreferrer">Changelog</a>
           </div>
           

@@ -12,9 +12,7 @@ import { stripUnsupportedParams } from "../translator/concerns/paramSupport.js";
 const BEARER = { combined: true, header: "Authorization", scheme: "bearer" };
 const XAPIKEY = { combined: true, header: "x-api-key", scheme: "raw" };
 const AUTH_DESCRIPTORS = Object.fromEntries(
-  Object.entries(PROVIDERS)
-    .filter(([, t]) => t.auth)
-    .map(([id, t]) => [id, t.auth])
+  Object.entries(PROVIDERS).reduce((acc, [id, t]) => { if (t.auth) acc.push([id, t.auth]); return acc; }, [])
 );
 
 // Apply a token to a header per scheme (matches legacy: combined always sets, even when undefined).
@@ -48,8 +46,8 @@ const HEADER_HOOKS = {
       const titleKey = lcKey.replace(/(^|-)([a-z])/g, (_, sep, ch) => sep + ch.toUpperCase());
       if (lcKey === "anthropic-beta") {
         const staticBetaStr = h[titleKey] || h[lcKey] || "";
-        const flags = new Set(staticBetaStr.split(",").map(f => f.trim()).filter(Boolean));
-        for (const f of cached[lcKey].split(",").map(f => f.trim()).filter(Boolean)) flags.add(f);
+        const flags = new Set(staticBetaStr.split(",").flatMap(f => { const t = f.trim(); return t ? [t] : []; }));
+        for (const f of cached[lcKey].split(",").flatMap(f => { const t = f.trim(); return t ? [t] : []; })) flags.add(f);
         cached[lcKey] = Array.from(flags).join(",");
       }
       if (titleKey !== lcKey && h[titleKey] !== undefined) delete h[titleKey];
@@ -60,20 +58,21 @@ const HEADER_HOOKS = {
 
 // Config-driven OAuth refresh grants — derived from registry oauth.refresh.
 const REFRESH_GRANTS = Object.fromEntries(
-  Object.entries(PROVIDER_OAUTH)
-    .filter(([, o]) => o.refresh)
-    .map(([id, o]) => {
+  Object.entries(PROVIDER_OAUTH).reduce((acc, [id, o]) => {
+    if (o.refresh) {
       const tokenUrl = o.tokenUrl;
       const encoding = o.refresh.encoding;
       const extraParams = o.refresh.scope ? { scope: o.refresh.scope } : {};
-      return [id, {
+      acc.push([id, {
         encoding,
         url: () => tokenUrl,
         params: (ex) => id === "gemini"
           ? { client_id: ex.config.clientId, client_secret: ex.config.clientSecret, ...extraParams }
           : { client_id: o.clientId, ...extraParams },
-      }];
-    })
+      }]);
+    }
+    return acc;
+  }, [])
 );
 
 export class DefaultExecutor extends BaseExecutor {

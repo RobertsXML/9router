@@ -6,6 +6,7 @@ import { promisify } from "util";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
+import { withLocalAuth } from "@/app/api/_lib/auth";
 
 const execAsync = promisify(exec);
 
@@ -18,8 +19,8 @@ const resolveAgentModel = (m) => {
   return "";
 };
 
-const getOpenClawDir = () => path.join(os.homedir(), ".openclaw");
-const getOpenClawSettingsPath = () => path.join(getOpenClawDir(), "openclaw.json");
+const OPENCLAW_DIR = path.join(os.homedir(), ".openclaw");
+const OPENCLAW_SETTINGS_PATH = path.join(OPENCLAW_DIR, "openclaw.json");
 
 // Check if openclaw CLI is installed (via which/where or config file exists)
 const checkOpenClawInstalled = async () => {
@@ -34,7 +35,7 @@ const checkOpenClawInstalled = async () => {
     return true;
   } catch {
     try {
-      await fs.access(getOpenClawSettingsPath());
+      await fs.access(OPENCLAW_SETTINGS_PATH);
       return true;
     } catch {
       return false;
@@ -45,13 +46,10 @@ const checkOpenClawInstalled = async () => {
 // Read current settings.json
 const readSettings = async () => {
   try {
-    const settingsPath = getOpenClawSettingsPath();
-    const content = await fs.readFile(settingsPath, "utf-8");
-    // Tolerate JSONC (trailing commas) and treat unparseable files as "no config"
-    // rather than throwing a 500 that the UI misreads as "tool not installed".
+    const content = await fs.readFile(OPENCLAW_SETTINGS_PATH, "utf-8");
     const stripped = content.replace(/,(\s*[}\]])/g, "$1");
     return JSON.parse(stripped);
-  } catch (error) {
+  } catch {
     return null;
   }
 };
@@ -75,45 +73,6 @@ const readAgentModel = async (agentDir) => {
   }
 };
 
-// GET - Check openclaw CLI and read current settings
-export async function GET() {
-  try {
-    const isInstalled = await checkOpenClawInstalled();
-    
-    if (!isInstalled) {
-      return NextResponse.json({
-        installed: false,
-        settings: null,
-        message: "Open Claw CLI is not installed",
-      });
-    }
-
-    const settings = await readSettings();
-
-    // Enrich agents list with current per-agent model from models.json.
-    // Coerce agent.model to its string id when OpenClaw stores it as
-    // `{ primary, fallbacks }` so downstream `.startsWith()` calls work.
-    const agentList = settings?.agents?.list || [];
-    const enrichedAgents = await Promise.all(
-      agentList.map(async (agent) => {
-        const agentModel = agent.agentDir ? await readAgentModel(agent.agentDir) : null;
-        return { ...agent, model: resolveAgentModel(agent.model), currentModel: agentModel };
-      })
-    );
-
-    return NextResponse.json({
-      installed: true,
-      settings,
-      agents: enrichedAgents,
-      has9Router: has9RouterConfig(settings),
-      settingsPath: getOpenClawSettingsPath(),
-    });
-  } catch (error) {
-    console.log("Error checking openclaw settings:", error);
-    return NextResponse.json({ error: "Failed to check openclaw settings" }, { status: 500 });
-  }
-}
-
 // Write per-agent models.json
 const writeAgentModels = async (agentDir, model, baseUrl, apiKey) => {
   await fs.mkdir(agentDir, { recursive: true });
@@ -134,24 +93,57 @@ const writeAgentModels = async (agentDir, model, baseUrl, apiKey) => {
   await fs.writeFile(modelsPath, JSON.stringify(existing, null, 2));
 };
 
+// GET - Check openclaw CLI and read current settings
+export const GET = withLocalAuth(async () => {
+  try {
+    const isInstalled = await checkOpenClawInstalled();
+
+    if (!isInstalled) {
+      return NextResponse.json({
+        installed: false,
+        settings: null,
+        message: "Open Claw CLI is not installed",
+      });
+    }
+
+    const settings = await readSettings();
+
+    // Enrich agents list with current per-agent model from models.json.
+    const agentList = settings?.agents?.list || [];
+    const enrichedAgents = await Promise.all(
+      agentList.map(async (agent) => {
+        const agentModel = agent.agentDir ? await readAgentModel(agent.agentDir) : null;
+        return { ...agent, model: resolveAgentModel(agent.model), currentModel: agentModel };
+      })
+    );
+
+    return NextResponse.json({
+      installed: true,
+      settings,
+      agents: enrichedAgents,
+      has9Router: has9RouterConfig(settings),
+      settingsPath: OPENCLAW_SETTINGS_PATH,
+    });
+  } catch (error) {
+    return NextResponse.json({ error: "Failed to check openclaw settings" }, { status: 500 });
+  }
+});
+
 // POST - Update 9Router settings (merge with existing settings)
-export async function POST(request) {
+export const POST = withLocalAuth(async (request) => {
   try {
     // agentModels: { [agentId]: modelId } for per-agent override
     const { baseUrl, apiKey, model, agentModels = {} } = await request.json();
-    
+
     if (!baseUrl || !model) {
       return NextResponse.json({ error: "baseUrl and model are required" }, { status: 400 });
     }
 
-    const openclawDir = getOpenClawDir();
-    const settingsPath = getOpenClawSettingsPath();
-
-    await fs.mkdir(openclawDir, { recursive: true });
+    await fs.mkdir(OPENCLAW_DIR, { recursive: true });
 
     let settings = {};
     try {
-      const existingSettings = await fs.readFile(settingsPath, "utf-8");
+      const existingSettings = await fs.readFile(OPENCLAW_SETTINGS_PATH, "utf-8");
       settings = JSON.parse(existingSettings);
     } catch { /* No existing settings */ }
 
@@ -166,9 +158,7 @@ export async function POST(request) {
     const fullModelId = `9router/${model}`;
 
     // Remove all old 9router/* entries from agents.defaults.models
-    Object.keys(settings.agents.defaults.models)
-      .filter((k) => k.startsWith("9router/"))
-      .forEach((k) => { delete settings.agents.defaults.models[k]; });
+    for (const k of Object.keys(settings.agents.defaults.models)) { if (k.startsWith("9router/")) delete settings.agents.defaults.models[k]; }
 
     // Update default model
     settings.agents.defaults.model.primary = fullModelId;
@@ -182,8 +172,7 @@ export async function POST(request) {
       settings.agents.defaults.models[`9router/${m}`] = {};
     });
 
-    // Remove old 9router model from each agent in agents.list. The
-    // model field may be a plain string or `{ primary, fallbacks }`.
+    // Remove old 9router model from each agent in agents.list.
     if (settings.agents.list) {
       settings.agents.list = settings.agents.list.map((agent) => {
         if (resolveAgentModel(agent.model).startsWith("9router/")) {
@@ -215,34 +204,31 @@ export async function POST(request) {
         settings.agents.list.map(async (agent) => {
           if (!agent.agentDir) return;
           const agentModel = agentModels[agent.id];
-          const modelToWrite = agentModel || model; // fallback to default
+          const modelToWrite = agentModel || model;
           await writeAgentModels(agent.agentDir, modelToWrite, normalizedBaseUrl, apiKey);
         })
       );
     }
 
-    await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2));
+    await fs.writeFile(OPENCLAW_SETTINGS_PATH, JSON.stringify(settings, null, 2));
 
     return NextResponse.json({
       success: true,
       message: "Open Claw settings applied successfully!",
-      settingsPath,
+      settingsPath: OPENCLAW_SETTINGS_PATH,
     });
   } catch (error) {
-    console.log("Error updating openclaw settings:", error);
     return NextResponse.json({ error: "Failed to update openclaw settings" }, { status: 500 });
   }
-}
+});
 
 // DELETE - Remove 9Router settings only (keep other settings)
-export async function DELETE() {
+export const DELETE = withLocalAuth(async () => {
   try {
-    const settingsPath = getOpenClawSettingsPath();
-
     // Read existing settings
     let settings = {};
     try {
-      const existingSettings = await fs.readFile(settingsPath, "utf-8");
+      const existingSettings = await fs.readFile(OPENCLAW_SETTINGS_PATH, "utf-8");
       settings = JSON.parse(existingSettings);
     } catch (error) {
       if (error.code === "ENOENT") {
@@ -257,7 +243,7 @@ export async function DELETE() {
     // Remove 9Router from models.providers
     if (settings.models && settings.models.providers) {
       delete settings.models.providers["9router"];
-      
+
       // Remove providers object if empty
       if (Object.keys(settings.models.providers).length === 0) {
         delete settings.models.providers;
@@ -281,14 +267,13 @@ export async function DELETE() {
     }
 
     // Write updated settings
-    await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2));
+    await fs.writeFile(OPENCLAW_SETTINGS_PATH, JSON.stringify(settings, null, 2));
 
     return NextResponse.json({
       success: true,
       message: "9Router settings removed successfully",
     });
   } catch (error) {
-    console.log("Error resetting openclaw settings:", error);
     return NextResponse.json({ error: "Failed to reset openclaw settings" }, { status: 500 });
   }
-}
+});

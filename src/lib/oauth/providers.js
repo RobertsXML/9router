@@ -293,16 +293,12 @@ const PROVIDERS = {
       return await response.json();
     },
     postExchange: async (tokens) => {
-      // Fetch user info
-      const userInfoRes = await fetch(`${GEMINI_CONFIG.userInfoUrl}?alt=json`, {
-        headers: { Authorization: `Bearer ${tokens.access_token}` },
-      });
-      const userInfo = userInfoRes.ok ? await userInfoRes.json() : {};
-
-      // Fetch project ID
-      let projectId = "";
-      try {
-        const projectRes = await fetch(
+      // Fetch user info and project ID in parallel
+      const [userInfoRes, projectId] = await Promise.all([
+        fetch(`${GEMINI_CONFIG.userInfoUrl}?alt=json`, {
+          headers: { Authorization: `Bearer ${tokens.access_token}` },
+        }).then((r) => r.ok ? r.json() : {}).catch(() => ({})),
+        fetch(
           "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
           {
             method: "POST",
@@ -315,16 +311,14 @@ const PROVIDERS = {
               mode: 1,
             }),
           }
-        );
-        if (projectRes.ok) {
-          const data = await projectRes.json();
-          projectId = data.cloudaicompanionProject?.id || data.cloudaicompanionProject || "";
-        }
-      } catch (e) {
-        console.log("Failed to fetch project ID:", e);
-      }
+        ).then(async (r) => {
+          if (!r.ok) return "";
+          const data = await r.json();
+          return data.cloudaicompanionProject?.id || data.cloudaicompanionProject || "";
+        }).catch((e) => { console.log("Failed to fetch project ID:", e); return ""; }),
+      ]);
 
-      return { userInfo, projectId };
+      return { userInfo: userInfoRes, projectId };
     },
     mapTokens: (tokens, extra) => ({
       accessToken: tokens.access_token,
@@ -386,27 +380,22 @@ const PROVIDERS = {
       };
       const metadata = getOAuthClientMetadata();
 
-      // Fetch user info
-      const userInfoRes = await fetch(`${ANTIGRAVITY_CONFIG.userInfoUrl}?alt=json`, {
-        headers: {
-          Authorization: `Bearer ${tokens.access_token}`,
-          "x-request-source": "local",
-        },
-      });
-      const userInfo = userInfoRes.ok ? await userInfoRes.json() : {};
-
-      // Load Code Assist to get project ID and tier
-      let projectId = "";
-      let tierId = "legacy-tier";
-      try {
-        const loadRes = await fetch(ANTIGRAVITY_CONFIG.loadCodeAssistEndpoint, {
+      // Fetch user info and load code assist config in parallel
+      const [userInfo, codeAssistData] = await Promise.all([
+        fetch(`${ANTIGRAVITY_CONFIG.userInfoUrl}?alt=json`, {
+          headers: {
+            Authorization: `Bearer ${tokens.access_token}`,
+            "x-request-source": "local",
+          },
+        }).then((r) => r.ok ? r.json() : {}).catch(() => ({})),
+        fetch(ANTIGRAVITY_CONFIG.loadCodeAssistEndpoint, {
           method: "POST",
           headers: loadHeaders,
           body: JSON.stringify({ metadata }),
-        });
-        if (loadRes.ok) {
-          const data = await loadRes.json();
-          projectId = data.cloudaicompanionProject?.id || data.cloudaicompanionProject || "";
+        }).then(async (r) => {
+          if (!r.ok) return { projectId: "", tierId: "legacy-tier" };
+          const data = await r.json();
+          let tierId = "legacy-tier";
           if (Array.isArray(data.allowedTiers)) {
             for (const tier of data.allowedTiers) {
               if (tier.isDefault && tier.id) {
@@ -415,28 +404,36 @@ const PROVIDERS = {
               }
             }
           }
-        }
-      } catch (e) {
-        console.log("Failed to load code assist:", e);
-      }
+          return {
+            projectId: data.cloudaicompanionProject?.id || data.cloudaicompanionProject || "",
+            tierId,
+          };
+        }).catch((e) => { console.log("Failed to load code assist:", e); return { projectId: "", tierId: "legacy-tier" }; }),
+      ]);
+
+      const projectId = codeAssistData.projectId;
+      const tierId = codeAssistData.tierId;
 
       // Fire-and-forget onboarding — does not block DB save
       if (projectId) {
         const doOnboard = async () => {
           for (let i = 0; i < 10; i++) {
             try {
+              // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: retry loop
               const onboardRes = await fetch(ANTIGRAVITY_CONFIG.onboardUserEndpoint, {
                 method: "POST",
                 headers: loadHeaders,
                 body: JSON.stringify({ tierId, metadata }),
               });
               if (onboardRes.ok) {
+                // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: retry loop
                 const result = await onboardRes.json();
                 if (result.done === true) break;
               }
             } catch (e) {
               break;
             }
+            // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: retry loop
             await new Promise(resolve => setTimeout(resolve, 5000));
           }
         };
@@ -748,27 +745,19 @@ const PROVIDERS = {
       };
     },
     postExchange: async (tokens) => {
-      // Get Copilot token using GitHub access token
-      const copilotRes = await fetch(GITHUB_CONFIG.copilotTokenUrl, {
-        headers: {
-          Authorization: `Bearer ${tokens.access_token}`,
-          Accept: "application/json",
-          "X-GitHub-Api-Version": GITHUB_CONFIG.apiVersion,
-          "User-Agent": GITHUB_CONFIG.userAgent,
-        },
-      });
-      const copilotToken = copilotRes.ok ? await copilotRes.json() : {};
-
-      // Get user info from GitHub
-      const userRes = await fetch(GITHUB_CONFIG.userInfoUrl, {
-        headers: {
-          Authorization: `Bearer ${tokens.access_token}`,
-          Accept: "application/json",
-          "X-GitHub-Api-Version": GITHUB_CONFIG.apiVersion,
-          "User-Agent": GITHUB_CONFIG.userAgent,
-        },
-      });
-      const userInfo = userRes.ok ? await userRes.json() : {};
+      // Get Copilot token and user info in parallel
+      const headers = {
+        Authorization: `Bearer ${tokens.access_token}`,
+        Accept: "application/json",
+        "X-GitHub-Api-Version": GITHUB_CONFIG.apiVersion,
+        "User-Agent": GITHUB_CONFIG.userAgent,
+      };
+      const [copilotToken, userInfo] = await Promise.all([
+        fetch(GITHUB_CONFIG.copilotTokenUrl, { headers })
+          .then((r) => r.ok ? r.json() : {}).catch(() => ({})),
+        fetch(GITHUB_CONFIG.userInfoUrl, { headers })
+          .then((r) => r.ok ? r.json() : {}).catch(() => ({})),
+      ]);
 
       return { copilotToken, userInfo };
     },
@@ -1479,9 +1468,9 @@ export async function backfillCodexEmails() {
       const hasAccountInfo = !!c.providerSpecificData?.chatgptAccountId;
       return !hasEmail || !hasAccountInfo;
     });
-    for (const conn of targets) {
+    await Promise.all(targets.map(async (conn) => {
       const info = extractCodexAccountInfo(conn.idToken);
-      if (!info.email && !info.chatgptAccountId) continue;
+      if (!info.email && !info.chatgptAccountId) return;
       const patch = {};
       if (!conn.email && info.email) patch.email = info.email;
       if (info.chatgptAccountId || info.chatgptPlanType) {
@@ -1494,7 +1483,7 @@ export async function backfillCodexEmails() {
       if (Object.keys(patch).length) {
         await updateProviderConnection(conn.id, patch);
       }
-    }
+    }));
   } catch (err) {
     codexBackfillDone = false;
     console.log("backfillCodexEmails failed:", err?.message || err);

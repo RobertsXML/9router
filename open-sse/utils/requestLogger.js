@@ -35,7 +35,8 @@ function formatTimestamp(date = new Date()) {
 
 // Create log session folder: {sourceFormat}_{targetFormat}_{model}_{timestamp}
 async function createLogSession(sourceFormat, targetFormat, model) {
-  await ensureNodeModules();
+  if (!isNode || !LOGGING_ENABLED) return null;
+  if (!fs) await ensureNodeModules();
   if (!fs || !LOGS_DIR) return null;
   
   try {

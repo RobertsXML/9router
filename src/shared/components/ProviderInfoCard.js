@@ -20,16 +20,12 @@ const FIELD_SCHEMA = {
 export default function ProviderInfoCard({ config, provider, title = "Provider Info" }) {
   if (!config) return null;
 
-  const rows = Object.entries(FIELD_SCHEMA)
-    .filter(([key]) => config[key] !== undefined && config[key] !== null && config[key] !== "")
-    .map(([key, schema]) => ({
-      key,
-      label: schema.label,
-      value: schema.format(config[key]),
-      isLink: schema.isLink,
-      mono: schema.mono,
-      raw: config[key],
-    }));
+  const rows = [];
+  for (const [key, schema] of Object.entries(FIELD_SCHEMA)) {
+    if (config[key] !== undefined && config[key] !== null && config[key] !== "") {
+      rows.push({ key, label: schema.label, value: schema.format(config[key]), isLink: schema.isLink, mono: schema.mono, raw: config[key] });
+    }
+  }
 
   const signupUrl = provider?.notice?.apiKeyUrl || provider?.website;
   const noticeText = provider?.notice?.text;

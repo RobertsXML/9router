@@ -18,7 +18,7 @@ const lingerMs = parseInt(process.env.UPDATER_LINGER_MS || "30000", 10);
 const waitMinMs = parseInt(process.env.UPDATER_WAIT_MIN_MS || "3000", 10);
 const waitMaxMs = parseInt(process.env.UPDATER_WAIT_MAX_MS || "15000", 10);
 const waitCheckMs = parseInt(process.env.UPDATER_WAIT_CHECK_MS || "500", 10);
-const appPort = parseInt(process.env.UPDATER_APP_PORT || "20128", 10);
+const appPort = Math.min(65535, Math.max(1, parseInt(process.env.UPDATER_APP_PORT || "20128", 10) || 20128));
 
 // Data directory (match mitm/paths.js logic)
 function getDataDir() {
@@ -114,11 +114,13 @@ async function waitForAppExit() {
   // Poll app port until free or max timeout
   const deadline = Date.now() + (waitMaxMs - waitMinMs);
   while (Date.now() < deadline) {
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: poll port availability
     const busy = await isAppPortBusy();
     if (!busy) {
       pushLog(`[updater] app port :${appPort} is free, proceeding`);
       return;
     }
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: poll port availability
     await sleep(waitCheckMs);
   }
   pushLog(`[updater] timeout waiting for app, proceeding anyway`);
@@ -184,12 +186,15 @@ function openBrowser(url) {
 async function waitForAppAndOpenBrowser() {
   const deadline = Date.now() + 30000;
   while (Date.now() < deadline) {
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: poll port availability
     const busy = await isAppPortBusy();
     if (busy) {
+      // react-doctor local-rpc-native-bridge-risk: appPort clamped to [1,65535] at module top
       openBrowser(`http://localhost:${appPort}/dashboard`);
       pushLog(`[updater] app ready, opened dashboard`);
       return;
     }
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: poll port availability
     await sleep(1000);
   }
   pushLog(`[updater] app not responding within 30s, skip browser open`);

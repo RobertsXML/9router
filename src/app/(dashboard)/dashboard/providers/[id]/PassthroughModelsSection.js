@@ -34,6 +34,7 @@ function PassthroughModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias
         <code className="text-xs text-text-muted font-mono bg-sidebar px-1.5 py-0.5 rounded">{fullModel}</code>
           <div className="relative group/btn">
             <button
+              type="button"
               onClick={() => onCopy(fullModel, `model-${modelId}`)}
               className="p-0.5 hover:bg-sidebar rounded text-text-muted hover:text-primary"
             >
@@ -48,6 +49,7 @@ function PassthroughModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias
           {onTest && (
             <div className="relative group/btn">
               <button
+                type="button"
                 onClick={onTest}
                 disabled={isTesting}
                 className="p-0.5 hover:bg-sidebar rounded text-text-muted hover:text-primary transition-colors"
@@ -66,6 +68,7 @@ function PassthroughModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias
 
       {/* Delete button */}
       <button
+        type="button"
         onClick={onDeleteAlias}
         className="p-1 hover:bg-red-50 rounded text-red-500"
         title="Remove model"

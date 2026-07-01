@@ -69,7 +69,10 @@ async function synthesizeMacOrWin(text, voiceId) {
   const mp3Path = join(dir, "out.mp3");
   try {
     const args = voiceId ? ["-v", voiceId, "-o", aiffPath, text] : ["-o", aiffPath, text];
+    // Sequential pipeline: say produces .aiff, ffmpeg converts to .mp3, readFile reads it
+    // react-doctor-disable-next-line react-doctor/async-parallel -- each step depends on the previous output
     await execFileAsync("say", args);
+    // react-doctor-disable-next-line react-doctor/async-parallel -- needs .aiff from previous step
     await execFileAsync("ffmpeg", ["-y", "-i", aiffPath, "-codec:a", "libmp3lame", "-qscale:a", "4", mp3Path]);
     const buf = await readFile(mp3Path);
     return buf.toString("base64");

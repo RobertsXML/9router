@@ -74,6 +74,7 @@ async function transcribeAssemblyAI(cfg, file, model, token) {
 
   const start = Date.now();
   while (Date.now() - start < 120_000) {
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: polling with delay between attempts
     await new Promise((r) => setTimeout(r, 2000));
     const poll = await fetch(`${cfg.baseUrl}/${id}`, { headers: auth });
     if (!poll.ok) continue;
@@ -117,7 +118,7 @@ async function transcribeGemini(cfg, file, model, token, formData) {
   });
   if (!res.ok) return upstreamError(res);
   const data = await res.json();
-  const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text).filter(Boolean).join("") || "";
+  const text = data?.candidates?.[0]?.content?.parts?.flatMap((p) => p.text ? [p.text] : []).join("") || "";
   return jsonResponse({ text });
 }
 

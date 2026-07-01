@@ -8,14 +8,19 @@ import { PROVIDER_OAUTH, PROVIDERS as REGISTRY_PROVIDERS } from "open-sse/provid
 /**
  * Get the platform enum value based on the current OS.
  * Matches Antigravity binary's ClientMetadata.Platform enum.
+ * Cached at module scope — platform/arch never change during runtime.
  */
-function getOAuthPlatformEnum() {
+const CACHED_PLATFORM_ENUM = (() => {
   const os = platform();
   const architecture = arch();
   if (os === "darwin") return architecture === "arm64" ? 2 : 1;
   if (os === "linux") return architecture === "arm64" ? 4 : 3;
   if (os === "win32") return 5;
   return 0;
+})();
+
+function getOAuthPlatformEnum() {
+  return CACHED_PLATFORM_ENUM;
 }
 
 // Claude OAuth Configuration (Authorization Code Flow with PKCE)
@@ -59,7 +64,7 @@ export function getOAuthClientMetadata() {
 }
 
 // OpenAI OAuth Configuration (Authorization Code Flow with PKCE)
-export const OPENAI_CONFIG = { ...PROVIDER_OAUTH["openai"] };
+const OPENAI_CONFIG = { ...PROVIDER_OAUTH["openai"] };
 
 // GitHub Copilot OAuth Configuration (Device Code Flow)
 export const GITHUB_CONFIG = { ...PROVIDER_OAUTH["github"] };
@@ -68,7 +73,7 @@ export const GITHUB_CONFIG = { ...PROVIDER_OAUTH["github"] };
 export const KIRO_CONFIG = { ...PROVIDER_OAUTH["kiro"] };
 
 // AWS region allowlist pattern — prevents SSRF via region injection into upstream URLs (GHSA-6mwv-4mrm-5p3m)
-export const AWS_REGION_PATTERN = /^[a-z]{2}-[a-z]+-\d{1,2}$/;
+const AWS_REGION_PATTERN = /^[a-z]{2}-[a-z]+-\d{1,2}$/;
 
 // Reject any region that is not a valid AWS region before interpolating it into a URL
 export function assertValidAwsRegion(region) {
@@ -115,7 +120,7 @@ export const KIMCHI_CONFIG = { ...PROVIDER_OAUTH["kimchi"] };
 export const OAUTH_TIMEOUT = 300000;
 
 // Provider list
-export const PROVIDERS = {
+const PROVIDERS = {
   CLAUDE: "claude",
   CODEX: "codex",
   GEMINI: "gemini-cli",

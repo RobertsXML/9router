@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import PropTypes from "prop-types";
 import { Modal, Button, Input } from "@/shared/components";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
@@ -12,50 +12,49 @@ import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 export default function KiroSocialOAuthModal({ isOpen, provider, onSuccess, onClose }) {
   const [step, setStep] = useState("loading"); // loading | input | success | error
   const [authUrl, setAuthUrl] = useState("");
-  const [authData, setAuthData] = useState(null);
+  const authDataRef = useRef(null);
   const [callbackUrl, setCallbackUrl] = useState("");
   const [error, setError] = useState(null);
   const { copied, copy } = useCopyToClipboard();
   const openedRef = useRef(false);
 
-  // Reset auto-open guard when modal closes so it can re-open next session.
-  useEffect(() => {
-    if (!isOpen) openedRef.current = false;
-  }, [isOpen]);
+  // Initialize auth flow — handler defined outside effect.
+  const initAuth = useCallback(async () => {
+    try {
+      setError(null);
+      setStep("loading");
 
-  // Initialize auth flow
-  useEffect(() => {
-    if (!isOpen || !provider) return;
+      const res = await fetch(`/api/oauth/kiro/social-authorize?provider=${provider}`);
+      const data = await res.json();
 
-    const initAuth = async () => {
-      try {
-        setError(null);
-        setStep("loading");
-
-        const res = await fetch(`/api/oauth/kiro/social-authorize?provider=${provider}`);
-        const data = await res.json();
-
-        if (!res.ok) {
-          throw new Error(data.error);
-        }
-
-        setAuthData(data);
-        setAuthUrl(data.authUrl);
-        setStep("input");
-
-        // Auto-open browser once per modal session.
-        if (!openedRef.current) {
-          openedRef.current = true;
-          window.open(data.authUrl, "_blank");
-        }
-      } catch (err) {
-        setError(err.message);
-        setStep("error");
+      if (!res.ok) {
+        throw new Error(data.error);
       }
-    };
 
-    initAuth();
-  }, [isOpen, provider]);
+      authDataRef.current = data;
+      setAuthUrl(data.authUrl);
+      setStep("input");
+
+      // Auto-open browser once per modal session.
+      if (!openedRef.current) {
+        openedRef.current = true;
+        window.open(data.authUrl, "_blank");
+      }
+    } catch (err) {
+      setError(err.message);
+      setStep("error");
+    }
+  }, [provider]);
+
+  // Sync auth state with modal open/close.
+  useEffect(() => {
+    if (isOpen && provider) {
+      initAuth();
+    } else {
+      openedRef.current = false;
+    }
+    return () => {};
+  }, [isOpen, provider, initAuth]);
 
   const handleManualSubmit = async () => {
     try {
@@ -88,7 +87,7 @@ export default function KiroSocialOAuthModal({ isOpen, provider, onSuccess, onCl
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           code,
-          codeVerifier: authData.codeVerifier,
+          codeVerifier: authDataRef.current.codeVerifier,
           provider,
         }),
       });

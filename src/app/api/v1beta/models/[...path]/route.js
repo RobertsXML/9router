@@ -141,12 +141,10 @@ function normalizeGeminiNativeModel(model) {
 }
 
 function getGeminiTtsModelIds() {
-  return new Set([
-    ...(PROVIDER_MODELS.gemini || [])
-      .filter((model) => (model.kind || model.type) === "tts")
-      .map((model) => model.id),
-    ...(PROVIDER_MODELS["gemini-tts-models"] || []).map((model) => model.id),
-  ]);
+  const ids = new Set();
+  for (const model of (PROVIDER_MODELS.gemini || [])) { if ((model.kind || model.type) === "tts") ids.add(model.id); }
+  for (const model of (PROVIDER_MODELS["gemini-tts-models"] || [])) ids.add(model.id);
+  return ids;
 }
 
 function hasAudioResponseModality(body) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useLayoutEffect } from "react";
+import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, usePathname } from "next/navigation";
 import { Globe, X } from "lucide-react";
@@ -19,10 +19,6 @@ export default function LanguageSwitcher({ currentLang }) {
   const pathname = usePathname();
   const current = getLanguage(currentLang);
 
-  useLayoutEffect(() => {
-    setMounted(true);
-  }, []);
-
   // Lock body scroll when modal is open
   useEffect(() => {
     if (open) {
@@ -39,7 +35,8 @@ export default function LanguageSwitcher({ currentLang }) {
   };
 
   const modal = open && (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4" onClick={() => setOpen(false)}>
+    // eslint-disable-next-line react-doctor/no-noninteractive-element-interactions -- <dialog> is interactive natively; click handler is for backdrop close
+    <dialog open tabIndex={-1} className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4 border-0 max-w-none max-h-none w-full h-full" onClick={() => setOpen(false)} onKeyDown={(e) => { if (e.key === "Escape") setOpen(false); }} aria-label="Close language switcher">
       <div
         className="bg-white rounded-xl shadow-2xl max-w-md w-full max-h-[80vh] overflow-hidden"
         onClick={(e) => e.stopPropagation()}
@@ -47,6 +44,7 @@ export default function LanguageSwitcher({ currentLang }) {
         <div className="flex items-center justify-between p-4 border-b border-gray-200">
           <h2 className="font-bold text-lg text-gray-900">{t(currentLang, "selectLanguage")}</h2>
           <button
+            type="button"
             onClick={() => setOpen(false)}
             className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
             aria-label="Close"
@@ -57,6 +55,7 @@ export default function LanguageSwitcher({ currentLang }) {
         <div className="p-2 overflow-y-auto max-h-[60vh]">
           {LANGUAGES.map((lang) => (
             <button
+              type="button"
               key={lang.code}
               onClick={() => switchTo(lang.code)}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors ${
@@ -75,12 +74,13 @@ export default function LanguageSwitcher({ currentLang }) {
           ))}
         </div>
       </div>
-    </div>
+    </dialog>
   );
 
   return (
     <>
       <button
+        type="button"
         onClick={() => setOpen(true)}
         className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
         aria-label="Switch language"

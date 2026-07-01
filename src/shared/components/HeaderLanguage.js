@@ -16,15 +16,12 @@ function getLocaleFromCookie() {
 
 export default function HeaderLanguage() {
   const [open, setOpen] = useState(false);
-  const [locale, setLocale] = useState("en");
-
-  useEffect(() => {
-    setLocale(getLocaleFromCookie());
-  }, [open]);
+  const [locale, setLocale] = useState(() => getLocaleFromCookie());
 
   return (
     <>
       <button
+        type="button"
         onClick={() => setOpen(true)}
         className="flex items-center justify-center p-2 rounded-lg text-text-muted hover:text-text-main hover:bg-black/5 dark:hover:bg-white/5 transition-all"
         title="Language"

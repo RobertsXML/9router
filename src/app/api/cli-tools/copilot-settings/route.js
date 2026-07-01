@@ -4,9 +4,10 @@ import { NextResponse } from "next/server";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
+import { withLocalAuth } from "@/app/api/_lib/auth";
 
-// Resolve chatLanguageModels.json path per OS
-const getConfigPath = () => {
+// Resolve chatLanguageModels.json path per OS — hoisted to module scope
+const CONFIG_PATH = (() => {
   const home = os.homedir();
   const platform = os.platform();
   if (platform === "win32") {
@@ -16,16 +17,14 @@ const getConfigPath = () => {
     return path.join(home, "Library", "Application Support", "Code", "User", "chatLanguageModels.json");
   }
   return path.join(home, ".config", "Code", "User", "chatLanguageModels.json");
-};
+})();
 
 const readConfig = async () => {
   try {
-    const content = await fs.readFile(getConfigPath(), "utf-8");
-    // Tolerate JSONC (trailing commas) and treat unparseable files as "no config"
-    // rather than throwing a 500 that the UI misreads as "tool not installed".
+    const content = await fs.readFile(CONFIG_PATH, "utf-8");
     const stripped = content.replace(/,(\s*[}\]])/g, "$1");
     return JSON.parse(stripped);
-  } catch (error) {
+  } catch {
     return null;
   }
 };
@@ -41,7 +40,7 @@ const get9RouterEntry = (config) => {
 };
 
 // GET - Read current copilot config
-export async function GET() {
+export const GET = withLocalAuth(async () => {
   try {
     const config = await readConfig();
     const entry = get9RouterEntry(config);
@@ -50,18 +49,17 @@ export async function GET() {
       installed: true,
       config,
       has9Router: has9RouterConfig(config),
-      configPath: getConfigPath(),
+      configPath: CONFIG_PATH,
       currentModel: entry?.models?.[0]?.id || null,
       currentUrl: entry?.models?.[0]?.url || null,
     });
   } catch (error) {
-    console.log("Error checking copilot settings:", error);
     return NextResponse.json({ error: "Failed to check copilot settings" }, { status: 500 });
   }
-}
+});
 
 // POST - Apply 9Router config to chatLanguageModels.json
-export async function POST(request) {
+export const POST = withLocalAuth(async (request) => {
   try {
     const { baseUrl, apiKey, models } = await request.json();
 
@@ -69,13 +67,12 @@ export async function POST(request) {
       return NextResponse.json({ error: "baseUrl and models are required" }, { status: 400 });
     }
 
-    const configPath = getConfigPath();
-    await fs.mkdir(path.dirname(configPath), { recursive: true });
+    await fs.mkdir(path.dirname(CONFIG_PATH), { recursive: true });
 
     // Read existing config array
     let config = [];
     try {
-      const existing = await fs.readFile(configPath, "utf-8");
+      const existing = await fs.readFile(CONFIG_PATH, "utf-8");
       const parsed = JSON.parse(existing);
       config = Array.isArray(parsed) ? parsed : [];
     } catch { /* No existing config */ }
@@ -106,27 +103,24 @@ export async function POST(request) {
       config.push(newEntry);
     }
 
-    await fs.writeFile(configPath, JSON.stringify(config, null, 2));
+    await fs.writeFile(CONFIG_PATH, JSON.stringify(config, null, 2));
 
     return NextResponse.json({
       success: true,
       message: "Copilot settings applied! Reload VS Code to take effect.",
-      configPath,
+      configPath: CONFIG_PATH,
     });
   } catch (error) {
-    console.log("Error updating copilot settings:", error);
     return NextResponse.json({ error: "Failed to update copilot settings" }, { status: 500 });
   }
-}
+});
 
 // DELETE - Remove 9Router entry from chatLanguageModels.json
-export async function DELETE() {
+export const DELETE = withLocalAuth(async () => {
   try {
-    const configPath = getConfigPath();
-
     let config = [];
     try {
-      const existing = await fs.readFile(configPath, "utf-8");
+      const existing = await fs.readFile(CONFIG_PATH, "utf-8");
       const parsed = JSON.parse(existing);
       config = Array.isArray(parsed) ? parsed : [];
     } catch (error) {
@@ -137,14 +131,13 @@ export async function DELETE() {
     }
 
     config = config.filter((e) => e.name !== "9Router");
-    await fs.writeFile(configPath, JSON.stringify(config, null, 2));
+    await fs.writeFile(CONFIG_PATH, JSON.stringify(config, null, 2));
 
     return NextResponse.json({
       success: true,
       message: "9Router removed from Copilot config",
     });
   } catch (error) {
-    console.log("Error resetting copilot settings:", error);
     return NextResponse.json({ error: "Failed to reset copilot settings" }, { status: 500 });
   }
-}
+});

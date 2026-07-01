@@ -159,6 +159,7 @@ async function handleSingleProviderFetch(body, providerInput, request, apiKey, s
   let lastStatus = null;
 
   while (true) {
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential fallback loop, each iteration excludes the previous account
     const credentials = await getProviderCredentials(providerId, excludeConnectionIds);
 
     if (!credentials || credentials.allRateLimited) {

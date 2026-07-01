@@ -63,7 +63,7 @@ function openAICompletionToClaudeMessage(responseBody) {
 /**
  * Translate non-streaming response body from provider format → OpenAI format.
  */
-export function translateNonStreamingResponse(responseBody, targetFormat, sourceFormat) {
+function translateNonStreamingResponse(responseBody, targetFormat, sourceFormat) {
   if (targetFormat === sourceFormat) return responseBody;
   if (targetFormat === FORMATS.OPENAI && sourceFormat === FORMATS.CLAUDE) {
     return openAICompletionToClaudeMessage(responseBody);

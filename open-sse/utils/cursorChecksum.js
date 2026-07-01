@@ -8,13 +8,15 @@
 import crypto from "crypto";
 import { v5 as uuidv5 } from "uuid";
 
+const CURSOR_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+
 /**
  * Generate SHA-256 hash like generateHashed64Hex
  * @param {string} input - Input string
  * @param {string} salt - Optional salt
  * @returns {string} - 64-character hex string
  */
-export function generateHashed64Hex(input, salt = "") {
+function generateHashed64Hex(input, salt = "") {
   return crypto.createHash("sha256").update(input + salt).digest("hex");
 }
 
@@ -23,7 +25,7 @@ export function generateHashed64Hex(input, salt = "") {
  * @param {string} authToken - Auth token
  * @returns {string} - UUID string
  */
-export function generateSessionId(authToken) {
+function generateSessionId(authToken) {
   return uuidv5(authToken, uuidv5.DNS);
 }
 
@@ -40,7 +42,7 @@ export function generateSessionId(authToken) {
  * @param {string} machineId - Machine ID from Cursor storage or generated
  * @returns {string} - Checksum string
  */
-export function generateCursorChecksum(machineId) {
+function generateCursorChecksum(machineId) {
   // Math.floor(Date.now() / 1e6) - same as Python implementation
   const timestamp = Math.floor(Date.now() / 1000000);
 
@@ -134,16 +136,10 @@ export function buildCursorHeaders(accessToken, machineId = null, ghostMode = tr
     "x-cursor-client-arch": arch,
     "x-cursor-client-device-type": "desktop",
     "x-cursor-config-version": crypto.randomUUID(),
-    "x-cursor-timezone": Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+    "x-cursor-timezone": CURSOR_TIMEZONE,
     "x-ghost-mode": ghostMode ? "true" : "false",
     "x-request-id": crypto.randomUUID(),
     "x-session-id": sessionId
   };
 }
 
-export default {
-  generateCursorChecksum,
-  buildCursorHeaders,
-  generateHashed64Hex,
-  generateSessionId
-};

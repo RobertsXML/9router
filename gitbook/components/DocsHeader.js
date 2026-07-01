@@ -17,6 +17,7 @@ export default function DocsHeader({ lang = DEFAULT_LANG }) {
         <div className=" mx-auto px-4 h-16 flex items-center justify-between">
           {/* Mobile menu button */}
           <button
+            type="button"
             onClick={() => setMobileMenuOpen(true)}
             className="lg:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors"
             aria-label="Open menu"
@@ -51,9 +52,12 @@ export default function DocsHeader({ lang = DEFAULT_LANG }) {
       {/* Mobile menu */}
       {mobileMenuOpen && (
         <>
-          <div
+          <button
+            type="button"
             className="mobile-menu-overlay lg:hidden"
             onClick={() => setMobileMenuOpen(false)}
+            onKeyDown={(e) => { if (e.key === "Escape") setMobileMenuOpen(false); }}
+            aria-label="Close menu"
           />
           
           <div className="mobile-menu-drawer lg:hidden">
@@ -62,6 +66,7 @@ export default function DocsHeader({ lang = DEFAULT_LANG }) {
                 <span className="text-[#E68A6E]">9</span>{DOCS_CONFIG.logo} Docs
               </span>
               <button
+                type="button"
                 onClick={() => setMobileMenuOpen(false)}
                 className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
                 aria-label="Close menu"

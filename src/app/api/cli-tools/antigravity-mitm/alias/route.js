@@ -1,25 +1,25 @@
 "use server";
 
 import { NextResponse } from "next/server";
+import { withLocalAuth } from "@/app/api/_lib/auth";
 import { getMitmAlias, setMitmAliasAll } from "@/models";
 import { getMitmStatus } from "@/mitm/manager";
 import { writeAliasForTool } from "@/lib/mitmAliasCache";
 
 // GET - Get MITM aliases for a tool
-export async function GET(request) {
+export const GET = withLocalAuth(async (request) => {
   try {
     const { searchParams } = new URL(request.url);
     const toolName = searchParams.get("tool");
     const aliases = await getMitmAlias(toolName || undefined);
     return NextResponse.json({ aliases });
   } catch (error) {
-    console.log("Error fetching MITM aliases:", error.message);
     return NextResponse.json({ error: "Failed to fetch aliases" }, { status: 500 });
   }
-}
+});
 
 // PUT - Save MITM aliases for a specific tool
-export async function PUT(request) {
+export const PUT = withLocalAuth(async (request) => {
   try {
     const { tool, mappings } = await request.json();
 
@@ -47,7 +47,6 @@ export async function PUT(request) {
     writeAliasForTool(tool, filtered);
     return NextResponse.json({ success: true, aliases: filtered });
   } catch (error) {
-    console.log("Error saving MITM aliases:", error.message);
     return NextResponse.json({ error: "Failed to save aliases" }, { status: 500 });
   }
-}
+});

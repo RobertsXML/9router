@@ -9,10 +9,10 @@ export function useModelCaps() {
   const [byId, setById] = useState({});
 
   useEffect(() => {
-    let alive = true;
+    const controller = new AbortController();
     (async () => {
       try {
-        const res = await fetch("/api/models");
+        const res = await fetch("/api/models", { signal: controller.signal });
         if (!res.ok) return;
         const data = await res.json();
         const full = {};
@@ -22,10 +22,10 @@ export function useModelCaps() {
           if (m.fullModel) full[m.fullModel] = m.caps;
           if (m.model) id[m.model] = m.caps;
         }
-        if (alive) { setByFull(full); setById(id); }
-      } catch { /* ignore */ }
+        if (!controller.signal.aborted) { setByFull(full); setById(id); }
+      } catch (err) { if (err.name !== "AbortError") {} /* ignore */ }
     })();
-    return () => { alive = false; };
+    return () => { controller.abort(); };
   }, []);
 
   // Resolve caps from a "provider/model" string or a bare model id.

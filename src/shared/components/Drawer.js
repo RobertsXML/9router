@@ -1,7 +1,15 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useEffectEvent } from "react";
 import { cn } from "@/shared/utils/cn";
+
+const widths = {
+  sm: "w-[400px]",
+  md: "w-[500px]",
+  lg: "w-[600px]",
+  xl: "w-[800px]",
+  full: "w-full",
+};
 
 export default function Drawer({
   isOpen,
@@ -11,14 +19,6 @@ export default function Drawer({
   width = "md",
   className
 }) {
-  const widths = {
-    sm: "w-[400px]",
-    md: "w-[500px]",
-    lg: "w-[600px]",
-    xl: "w-[800px]",
-    full: "w-full",
-  };
-
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = "hidden";
@@ -28,23 +28,25 @@ export default function Drawer({
     return () => { document.body.style.overflow = ""; };
   }, [isOpen]);
 
+  const handleClose = useEffectEvent(() => onClose());
   useEffect(() => {
     const handleEscape = (e) => {
-      if (e.key === "Escape" && isOpen) onClose();
+      if (e.key === "Escape" && isOpen) handleClose();
     };
     document.addEventListener("keydown", handleEscape);
     return () => document.removeEventListener("keydown", handleEscape);
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50">
       {/* Overlay */}
-      <div
+      <button
+        type="button"
         className="absolute inset-0 bg-black/50 backdrop-blur-[2px] fade-in cursor-pointer"
         onClick={onClose}
-        aria-hidden="true"
+        aria-label="Close drawer"
       />
 
       {/* Drawer panel */}

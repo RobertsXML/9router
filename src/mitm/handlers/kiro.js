@@ -349,24 +349,25 @@ function convertOpenAIToKiro(chunk, state) {
     state.hasToolCalls = true;
     for (const tc of delta.tool_calls) {
       const idx = tc.index ?? 0;
+      const tcFn = tc.function;
 
-      if (tc.id && tc.function?.name && !state.toolCallInit[idx]) {
+      if (tc.id && tcFn?.name && !state.toolCallInit[idx]) {
         // First appearance: emit frame with name + id, no input
-        state.toolCallInit[idx] = { id: tc.id, name: tc.function.name };
-        dbg(`toolUseEvent init: ${tc.function.name} (${tc.id})`);
+        state.toolCallInit[idx] = { id: tc.id, name: tcFn.name };
+        dbg(`toolUseEvent init: ${tcFn.name} (${tc.id})`);
         frames.push(buildEventStreamFrame("toolUseEvent", {
-          name: tc.function.name,
+          name: tcFn.name,
           toolUseId: tc.id
         }));
       }
 
       // Emit incremental input fragment
-      if (tc.function?.arguments) {
+      if (tcFn?.arguments) {
         const init = state.toolCallInit[idx];
-        dbg(`toolUseEvent fragment: ${tc.function.arguments.slice(0, 100)}`);
+        dbg(`toolUseEvent fragment: ${tcFn.arguments.slice(0, 100)}`);
         frames.push(buildEventStreamFrame("toolUseEvent", {
-          input: tc.function.arguments,
-          name: init?.name || tc.function?.name || "",
+          input: tcFn.arguments,
+          name: init?.name || tcFn?.name || "",
           toolUseId: init?.id || tc.id || ""
         }));
       }
@@ -421,7 +422,7 @@ function emitFinish(state) {
 
   if (state.hasToolCalls) {
     // Tool-call response: emit stop:true for each tool
-    for (const idx of Object.keys(state.toolCallInit).sort()) {
+    for (const idx of Object.keys(state.toolCallInit).toSorted()) {
       const tc = state.toolCallInit[idx];
       frames.push(buildEventStreamFrame("toolUseEvent", {
         name: tc.name,

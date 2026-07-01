@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { formatResetTime, getRemainingPercentage } from "./utils";
 
 const PAGE_SIZE = 10;
@@ -71,11 +71,11 @@ function getColorClasses(remainingPercentage) {
 
 function sortQuotas(quotas, sortMode) {
   if (sortMode === "remaining-asc") {
-    return [...quotas].sort((a, b) => a.remaining - b.remaining || a.name.localeCompare(b.name));
+    return quotas.toSorted((a, b) => a.remaining - b.remaining || a.name.localeCompare(b.name));
   }
 
   if (sortMode === "remaining-desc") {
-    return [...quotas].sort((a, b) => b.remaining - a.remaining || a.name.localeCompare(b.name));
+    return quotas.toSorted((a, b) => b.remaining - a.remaining || a.name.localeCompare(b.name));
   }
 
   return quotas;
@@ -84,8 +84,10 @@ function sortQuotas(quotas, sortMode) {
 /**
  * Quota Table Component - Table-based display for quota data
  */
+const EMPTY_QUOTAS = [];
+
 export default function QuotaTable({
-  quotas = [],
+  quotas = EMPTY_QUOTAS,
   compact = false,
   sortMode = "default",
   showSortLabel = false,
@@ -107,25 +109,26 @@ export default function QuotaTable({
   );
 
   const totalPages = Math.max(1, Math.ceil(sortedQuotas.length / PAGE_SIZE));
+  const effectivePage = Math.min(page, totalPages);
 
-  useEffect(() => {
-    setPage(1);
-  }, [sortMode, quotas]);
-
-  useEffect(() => {
-    setPage((currentPage) => Math.min(currentPage, totalPages));
-  }, [totalPages]);
+  const prevSortRef = useRef(sortMode);
+  const prevQuotasLenRef = useRef(quotas.length);
+  if (sortMode !== prevSortRef.current || quotas.length !== prevQuotasLenRef.current) {
+    prevSortRef.current = sortMode;
+    prevQuotasLenRef.current = quotas.length;
+    if (page !== 1) setPage(1);
+  }
 
   if (!quotas || quotas.length === 0) {
     return null;
   }
 
   const currentPageRows = sortedQuotas.slice(
-    (page - 1) * PAGE_SIZE,
-    page * PAGE_SIZE,
+    (effectivePage - 1) * PAGE_SIZE,
+    effectivePage * PAGE_SIZE,
   );
-  const pageStart = sortedQuotas.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-  const pageEnd = Math.min(page * PAGE_SIZE, sortedQuotas.length);
+  const pageStart = sortedQuotas.length === 0 ? 0 : (effectivePage - 1) * PAGE_SIZE + 1;
+  const pageEnd = Math.min(effectivePage * PAGE_SIZE, sortedQuotas.length);
 
   const cellPad = compact ? "py-1 px-1.5" : "py-2 px-3";
   const nameText = compact ? "text-[11px]" : "text-sm";
@@ -136,11 +139,11 @@ export default function QuotaTable({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
-        <div className="text-[10px] text-text-muted">
+        <div className="text-xs text-text-muted">
           {sortedQuotas.length} quota{sortedQuotas.length > 1 ? "s" : ""}
         </div>
         {showSortLabel && (
-          <div className="rounded-md border border-black/10 bg-black/[0.02] px-2 py-1 text-[10px] text-text-muted dark:border-white/10 dark:bg-white/[0.03]">
+          <div className="rounded-md border border-black/10 bg-black/[0.02] px-2 py-1 text-xs text-text-muted dark:border-white/10 dark:bg-white/[0.03]">
             {sortLabel}
           </div>
         )}
@@ -231,28 +234,28 @@ export default function QuotaTable({
 
       {totalPages > 1 && (
         <div className="rounded-md border border-black/10 bg-black/[0.02] px-2 py-1.5 dark:border-white/10 dark:bg-white/[0.03]">
-          <div className="flex items-center justify-between gap-2 text-[10px] text-text-muted">
+          <div className="flex items-center justify-between gap-2 text-xs text-text-muted">
             <span>
               Showing {pageStart}-{pageEnd} of {sortedQuotas.length}
             </span>
             <span>
-              Page {page} / {totalPages}
+              Page {effectivePage} / {totalPages}
             </span>
           </div>
           <div className="mt-1.5 flex items-center justify-end gap-1">
             <button
               type="button"
               onClick={() => setPage((currentPage) => Math.max(1, currentPage - 1))}
-              disabled={page === 1}
-              className="flex h-6 items-center rounded-md border border-black/10 px-2 text-[10px] text-text-primary transition-colors hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:hover:bg-white/5"
+              disabled={effectivePage === 1}
+              className="flex h-6 items-center rounded-md border border-black/10 px-2 text-xs text-text-primary transition-colors hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:hover:bg-white/5"
             >
               Prev
             </button>
             <button
               type="button"
               onClick={() => setPage((currentPage) => Math.min(totalPages, currentPage + 1))}
-              disabled={page === totalPages}
-              className="flex h-6 items-center rounded-md border border-black/10 px-2 text-[10px] text-text-primary transition-colors hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:hover:bg-white/5"
+              disabled={effectivePage === totalPages}
+              className="flex h-6 items-center rounded-md border border-black/10 px-2 text-xs text-text-primary transition-colors hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:hover:bg-white/5"
             >
               Next
             </button>

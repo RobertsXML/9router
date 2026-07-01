@@ -9,7 +9,7 @@ export function fallbackToolCallId(index) {
 }
 
 // Generate deterministic tool call ID from position + tool name (cache-friendly)
-export function generateToolCallId(msgIndex = 0, tcIndex = 0, toolName = "") {
+function generateToolCallId(msgIndex = 0, tcIndex = 0, toolName = "") {
   const name = toolName ? `_${toolName.replace(/[^a-zA-Z0-9_-]/g, "")}` : "";
   return `call_msg${msgIndex}_tc${tcIndex}${name}`;
 }
@@ -30,17 +30,18 @@ export function ensureToolCallIds(body) {
     if (msg.role === "assistant" && msg.tool_calls && Array.isArray(msg.tool_calls)) {
       for (let j = 0; j < msg.tool_calls.length; j++) {
         const tc = msg.tool_calls[j];
+        const tcFn = tc.function;
         // Validate or regenerate ID for Anthropic compatibility
         if (!tc.id || !TOOL_ID_PATTERN.test(tc.id)) {
           const sanitized = sanitizeToolId(tc.id);
-          tc.id = sanitized || generateToolCallId(i, j, tc.function?.name);
+          tc.id = sanitized || generateToolCallId(i, j, tcFn?.name);
         }
         if (!tc.type) {
           tc.type = "function";
         }
         // Ensure arguments is JSON string, not object
-        if (tc.function?.arguments && typeof tc.function.arguments !== "string") {
-          tc.function.arguments = JSON.stringify(tc.function.arguments);
+        if (tcFn?.arguments && typeof tcFn.arguments !== "string") {
+          tcFn.arguments = JSON.stringify(tcFn.arguments);
         }
       }
     }
@@ -72,7 +73,7 @@ export function ensureToolCallIds(body) {
 }
 
 // Get tool_call ids from assistant message (OpenAI format: tool_calls, Claude format: tool_use in content)
-export function getToolCallIds(msg) {
+function getToolCallIds(msg) {
   if (msg.role !== "assistant") return [];
 
   const ids = [];
@@ -97,7 +98,7 @@ export function getToolCallIds(msg) {
 }
 
 // Check if user message has tool_result for given ids (OpenAI format: role=tool, Claude format: tool_result in content)
-export function hasToolResults(msg, toolCallIds) {
+function hasToolResults(msg, toolCallIds) {
   if (!msg || !toolCallIds.length) return false;
 
   // OpenAI format: role = "tool" with tool_call_id
@@ -107,8 +108,9 @@ export function hasToolResults(msg, toolCallIds) {
 
   // Claude format: tool_result blocks in user message content
   if (msg.role === "user" && Array.isArray(msg.content)) {
+    const idSet = new Set(toolCallIds);
     for (const block of msg.content) {
-      if (block.type === "tool_result" && toolCallIds.includes(block.tool_use_id)) {
+      if (block.type === "tool_result" && idSet.has(block.tool_use_id)) {
         return true;
       }
     }

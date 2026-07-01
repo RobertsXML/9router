@@ -1,9 +1,31 @@
 "use client";
 
-import { useState } from "react";
+import { useReducer } from "react";
 import PropTypes from "prop-types";
 import { Button } from "@/shared/components";
 import { getProviderCustomModelRows } from "@/shared/utils/providerCustomModels";
+
+const initialSectionState = {
+  newModel: "",
+  adding: false,
+  importing: false,
+  testingModelId: null,
+  modelTestResults: {},
+};
+
+function sectionReducer(state, action) {
+  switch (action.type) {
+    case "SET_FIELD":
+      return { ...state, [action.field]: action.value };
+    case "SET_TESTING":
+      return { ...state, testingModelId: action.modelId };
+    case "SET_TEST_RESULT":
+      return { ...state, modelTestResults: { ...state.modelTestResults, [action.modelId]: action.result } };
+    default:
+      return state;
+  }
+}
+
 function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias, onTest, testStatus, isTesting }) {
   const borderColor = testStatus === "ok"
     ? "border-green-500/40"
@@ -31,6 +53,7 @@ function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias,
           <code className="text-xs text-text-muted font-mono bg-sidebar px-1.5 py-0.5 rounded">{fullModel}</code>
           <div className="relative group/btn">
             <button
+              type="button"
               onClick={() => onCopy(fullModel, `model-${modelId}`)}
               className="p-0.5 hover:bg-sidebar rounded text-text-muted hover:text-primary"
             >
@@ -45,6 +68,7 @@ function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias,
           {onTest && (
             <div className="relative group/btn">
               <button
+                type="button"
                 onClick={onTest}
                 disabled={isTesting}
                 className="p-0.5 hover:bg-sidebar rounded text-text-muted hover:text-primary transition-colors"
@@ -61,6 +85,7 @@ function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias,
         </div>
       </div>
       <button
+        type="button"
         onClick={onDeleteAlias}
         className="p-1 hover:bg-red-50 rounded text-red-500"
         title="Remove model"
@@ -72,15 +97,12 @@ function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias,
 }
 
 export default function CompatibleModelsSection({ providerStorageAlias, providerDisplayAlias, modelAliases, customModels, copied, onCopy, onDeleteAlias, onAddCustomModel, onDeleteCustomModel, connections, isAnthropic }) {
-  const [newModel, setNewModel] = useState("");
-  const [adding, setAdding] = useState(false);
-  const [importing, setImporting] = useState(false);
-  const [testingModelId, setTestingModelId] = useState(null);
-  const [modelTestResults, setModelTestResults] = useState({});
+  const [state, dispatch] = useReducer(sectionReducer, initialSectionState);
+  const { newModel, adding, importing, testingModelId, modelTestResults } = state;
 
   const handleTestModel = async (modelId) => {
     if (testingModelId) return;
-    setTestingModelId(modelId);
+    dispatch({ type: "SET_TESTING", modelId });
     try {
       const res = await fetch("/api/models/test", {
         method: "POST",
@@ -88,11 +110,11 @@ export default function CompatibleModelsSection({ providerStorageAlias, provider
         body: JSON.stringify({ model: `${providerStorageAlias}/${modelId}` }),
       });
       const data = await res.json();
-      setModelTestResults((prev) => ({ ...prev, [modelId]: data.ok ? "ok" : "error" }));
+      dispatch({ type: "SET_TEST_RESULT", modelId, result: data.ok ? "ok" : "error" });
     } catch {
-      setModelTestResults((prev) => ({ ...prev, [modelId]: "error" }));
+      dispatch({ type: "SET_TEST_RESULT", modelId, result: "error" });
     } finally {
-      setTestingModelId(null);
+      dispatch({ type: "SET_TESTING", modelId: null });
     }
   };
 
@@ -111,14 +133,14 @@ export default function CompatibleModelsSection({ providerStorageAlias, provider
       return;
     }
 
-    setAdding(true);
+    dispatch({ type: "SET_FIELD", field: "adding", value: true });
     try {
       await onAddCustomModel(modelId);
-      setNewModel("");
+      dispatch({ type: "SET_FIELD", field: "newModel", value: "" });
     } catch (error) {
       console.log("Error adding model:", error);
     } finally {
-      setAdding(false);
+      dispatch({ type: "SET_FIELD", field: "adding", value: false });
     }
   };
 
@@ -127,7 +149,7 @@ export default function CompatibleModelsSection({ providerStorageAlias, provider
     const activeConnection = connections.find((conn) => conn.isActive !== false);
     if (!activeConnection) return;
 
-    setImporting(true);
+    dispatch({ type: "SET_FIELD", field: "importing", value: true });
     try {
       const res = await fetch(`/api/providers/${activeConnection.id}/models`);
       const data = await res.json();
@@ -141,6 +163,7 @@ export default function CompatibleModelsSection({ providerStorageAlias, provider
         return;
       }
       let importedCount = 0;
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: state-mutating callback per model, must await each
       for (const model of models) {
         const modelId = model.id || model.name || model.model;
         if (!modelId) continue;
@@ -154,7 +177,7 @@ export default function CompatibleModelsSection({ providerStorageAlias, provider
     } catch (error) {
       console.log("Error importing models:", error);
     } finally {
-      setImporting(false);
+      dispatch({ type: "SET_FIELD", field: "importing", value: false });
     }
   };
 
@@ -173,7 +196,7 @@ export default function CompatibleModelsSection({ providerStorageAlias, provider
             id="new-compatible-model-input"
             type="text"
             value={newModel}
-            onChange={(e) => setNewModel(e.target.value)}
+            onChange={(e) => dispatch({ type: "SET_FIELD", field: "newModel", value: e.target.value })}
             onKeyDown={(e) => e.key === "Enter" && handleAdd()}
             placeholder={isAnthropic ? "claude-3-opus-20240229" : "gpt-4o"}
             className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"

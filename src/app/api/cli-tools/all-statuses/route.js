@@ -1,6 +1,7 @@
 "use server";
 
 import { NextResponse } from "next/server";
+import { withLocalAuth } from "@/app/api/_lib/auth";
 import { GET as claudeGet } from "../claude-settings/route";
 import { GET as codexGet } from "../codex-settings/route";
 import { GET as opencodeGet } from "../opencode-settings/route";
@@ -14,7 +15,7 @@ import { GET as kiloGet } from "../kilo-settings/route";
 import { GET as deepseekTuiGet } from "../deepseek-tui-settings/route";
 import { GET as jcodeGet } from "../jcode-settings/route";
 
-const STATUS_GETTERS = {
+const STATUS_GETTERS = Object.freeze({
   claude: claudeGet,
   codex: codexGet,
   opencode: opencodeGet,
@@ -27,10 +28,10 @@ const STATUS_GETTERS = {
   kilo: kiloGet,
   "deepseek-tui": deepseekTuiGet,
   jcode: jcodeGet,
-};
+});
 
 // Batch endpoint: gather all CLI tool statuses in one round-trip
-export async function GET() {
+export const GET = withLocalAuth(async () => {
   const entries = await Promise.all(
     Object.entries(STATUS_GETTERS).map(async ([toolId, getter]) => {
       try {
@@ -43,4 +44,4 @@ export async function GET() {
     })
   );
   return NextResponse.json(Object.fromEntries(entries));
-}
+});

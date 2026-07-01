@@ -1,6 +1,8 @@
-import { register } from "../index.js";
+import { register } from "../registry.js";
 import { FORMATS } from "../formats.js";
-import { ROLE, CLAUDE_BLOCK, MODEL_FALLBACK } from "../schema/index.js";
+import { ROLE } from "../schema/roles.js";
+import { CLAUDE_BLOCK } from "../schema/blocks.js";
+import { MODEL_FALLBACK } from "../schema/defaults.js";
 import { fromOpenAIFinish } from "../concerns/finishReason.js";
 import { extractReasoningText } from "../concerns/reasoning.js";
 

@@ -91,4 +91,4 @@ function wrapNdjsonAsOpenAISse(originalResponse, model) {
   });
 }
 
-export default CommandCodeExecutor;
+// ponytail: removed unused default export; add back if dynamic import pattern changes

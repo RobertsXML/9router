@@ -103,6 +103,7 @@ export async function POST(request) {
       if (item.isActive === undefined) item.isActive = true;
       if (!item.lastRefreshAt) item.lastRefreshAt = new Date().toISOString();
 
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: createProviderConnection reads max(priority) and reorders in a transaction
       const created = await createProviderConnection({
         provider: "codex",
         authType: "oauth",

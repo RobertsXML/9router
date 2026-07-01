@@ -39,7 +39,7 @@ function buildProviderEntry(r) {
 }
 
 const byCategory = (cat) => Object.fromEntries(
-  REGISTRY.filter(r => r.category === cat).map(r => [r.id, buildProviderEntry(r)])
+  REGISTRY.flatMap(r => r.category === cat ? [[r.id, buildProviderEntry(r)]] : [])
 );
 
 export const FREE_PROVIDERS = byCategory("free");
@@ -107,14 +107,23 @@ export const AUTH_METHODS = {
   cookie: { id: "cookie" },
 };
 
-// Helper: Get provider by alias
+// Alias to ID mapping (for quick lookup)
+export const ALIAS_TO_ID = Object.values(AI_PROVIDERS).reduce((acc, p) => {
+  acc[p.alias] = p.id;
+  return acc;
+}, {});
+
+// ID to Alias mapping
+export const ID_TO_ALIAS = Object.values(AI_PROVIDERS).reduce((acc, p) => {
+  acc[p.id] = p.alias;
+  return acc;
+}, {});
+
+// Helper: Get provider by alias (O(1) via ALIAS_TO_ID + direct lookup)
 export function getProviderByAlias(alias) {
-  for (const provider of Object.values(AI_PROVIDERS)) {
-    if (provider.alias === alias || provider.id === alias) {
-      return provider;
-    }
-  }
-  return null;
+  const id = ALIAS_TO_ID[alias];
+  if (id && AI_PROVIDERS[id]) return AI_PROVIDERS[id];
+  return AI_PROVIDERS[alias] || null;
 }
 
 // Helper: Get provider ID from alias
@@ -128,18 +137,6 @@ export function getProviderAlias(providerId) {
   const provider = AI_PROVIDERS[providerId];
   return provider?.alias || providerId;
 }
-
-// Alias to ID mapping (for quick lookup)
-export const ALIAS_TO_ID = Object.values(AI_PROVIDERS).reduce((acc, p) => {
-  acc[p.alias] = p.id;
-  return acc;
-}, {});
-
-// ID to Alias mapping
-export const ID_TO_ALIAS = Object.values(AI_PROVIDERS).reduce((acc, p) => {
-  acc[p.id] = p.alias;
-  return acc;
-}, {});
 
 // Helper: Get providers by service kind (e.g. "tts", "embedding", "image")
 // Providers without serviceKinds default to ["llm"]
@@ -156,10 +153,10 @@ export function getProvidersByKind(kind) {
 }
 
 // Derive từ registry features flags
-export const USAGE_SUPPORTED_PROVIDERS = REGISTRY
-  .filter(r => r.features?.usage)
-  .map(r => r.id);
-
-export const USAGE_APIKEY_PROVIDERS = REGISTRY
-  .filter(r => r.features?.usageApikey)
-  .map(r => r.id);
+const { _usageSupported, _usageApikey } = REGISTRY.reduce((acc, r) => {
+  if (r.features?.usage) acc._usageSupported.push(r.id);
+  if (r.features?.usageApikey) acc._usageApikey.push(r.id);
+  return acc;
+}, { _usageSupported: [], _usageApikey: [] });
+export const USAGE_SUPPORTED_PROVIDERS = _usageSupported;
+export const USAGE_APIKEY_PROVIDERS = _usageApikey;

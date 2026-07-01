@@ -46,7 +46,7 @@ function toModelKind(inputModalities) {
     : "llm";
 }
 
-export function normalizeKimchiModel(item) {
+function normalizeKimchiModel(item) {
   if (!item || typeof item !== "object") return null;
   const id = item.slug || item.id || item.model || item.name;
   if (typeof id !== "string" || id.trim() === "") return null;
@@ -157,7 +157,7 @@ export async function resolveKimchiModels(credentials, options = {}) {
     return null;
   }
 
-  const models = rawModels.map(normalizeKimchiModel).filter(Boolean);
+  const models = rawModels.flatMap(m => { const r = normalizeKimchiModel(m); return r ? [r] : []; });
   if (models.length === 0) return null;
 
   rememberModels(models);
@@ -170,7 +170,7 @@ export async function resolveKimchiModels(credentials, options = {}) {
   return entry;
 }
 
-export function clearKimchiCatalog() {
+function clearKimchiCatalog() {
   catalogCache.clear();
   metadataByModelId.clear();
 }

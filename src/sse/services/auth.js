@@ -52,7 +52,10 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
       };
     }
 
-    const connections = await getProviderConnections({ provider: providerId, isActive: true });
+    const [connections, settings] = await Promise.all([
+      getProviderConnections({ provider: providerId, isActive: true }),
+      getSettings(),
+    ]);
     log.debug("AUTH", `${provider} | total connections: ${connections.length}, excludeIds: ${excludeSet.size > 0 ? [...excludeSet].join(",") : "none"}, model: ${model || "any"}`);
 
     if (connections.length === 0) {
@@ -60,28 +63,28 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
       return null;
     }
 
-    // Filter out model-locked and excluded connections
-    const availableConnections = connections.filter(c => {
-      if (excludeSet.has(c.id)) return false;
-      if (isModelLockActive(c, model)) return false;
-      return true;
-    });
-
-    log.debug("AUTH", `${provider} | available: ${availableConnections.length}/${connections.length}`);
-    connections.forEach(c => {
+    // Filter out model-locked and excluded connections (single pass)
+    const availableConnections = [];
+    for (const c of connections) {
       const excluded = excludeSet.has(c.id);
       const locked = isModelLockActive(c, model);
-      if (excluded || locked) {
+      if (!excluded && !locked) {
+        availableConnections.push(c);
+      } else {
         const lockUntil = getEarliestModelLockUntil(c);
         log.debug("AUTH", `  → ${c.id?.slice(0, 8)} | ${excluded ? "excluded" : ""} ${locked ? `modelLocked(${model}) until ${lockUntil}` : ""}`);
       }
-    });
+    }
+
+    log.debug("AUTH", `${provider} | available: ${availableConnections.length}/${connections.length}`);
 
     if (availableConnections.length === 0) {
       // Find earliest lock expiry across all connections for retry timing
       const lockedConns = connections.filter(c => isModelLockActive(c, model));
-      const expiries = lockedConns.map(c => getEarliestModelLockUntil(c)).filter(Boolean);
-      const earliest = expiries.sort()[0] || null;
+      const expiries = lockedConns.flatMap(c => { const e = getEarliestModelLockUntil(c); return e ? [e] : []; });
+      const earliest = expiries.length
+        ? expiries.reduce((min, v) => (v < min ? v : min))
+        : null;
       if (earliest) {
         const earliestConn = lockedConns[0];
         log.warn("AUTH", `${provider} | all ${connections.length} accounts locked for ${model || "all"} (${formatRetryAfter(earliest)}) | lastError=${earliestConn?.lastError?.slice(0, 50)}`);
@@ -97,7 +100,6 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
       return null;
     }
 
-    const settings = await getSettings();
     // Per-provider strategy overrides global setting
     const providerOverride = (settings.providerStrategies || {})[providerId] || {};
     const strategy = providerOverride.fallbackStrategy || settings.fallbackStrategy || "fill-first";
@@ -116,7 +118,7 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
       const stickyLimit = providerOverride.stickyRoundRobinLimit || settings.stickyRoundRobinLimit || 3;
 
       // Sort by lastUsed (most recent first) to find current candidate
-      const byRecency = [...availableConnections].sort((a, b) => {
+      const byRecency = availableConnections.toSorted((a, b) => {
         if (!a.lastUsedAt && !b.lastUsedAt) return (a.priority || 999) - (b.priority || 999);
         if (!a.lastUsedAt) return 1;
         if (!b.lastUsedAt) return -1;
@@ -136,7 +138,7 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
         });
       } else {
         // Pick the least recently used (excluding current if possible)
-        const sortedByOldest = [...availableConnections].sort((a, b) => {
+        const sortedByOldest = availableConnections.toSorted((a, b) => {
           if (!a.lastUsedAt && !b.lastUsedAt) return (a.priority || 999) - (b.priority || 999);
           if (!a.lastUsedAt) return -1;
           if (!b.lastUsedAt) return 1;

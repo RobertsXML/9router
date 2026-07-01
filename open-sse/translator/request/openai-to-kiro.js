@@ -2,7 +2,7 @@
  * OpenAI to Kiro Request Translator
  * Converts OpenAI Chat Completions format to Kiro/AWS CodeWhisperer format
  */
-import { register } from "../index.js";
+import { register } from "../registry.js";
 import { FORMATS } from "../formats.js";
 import { v4 as uuidv4 } from "uuid";
 import { resolveSessionId } from "../../utils/sessionManager.js";
@@ -14,8 +14,9 @@ import {
   resolveDefaultProfileArn
 } from "../../config/kiroConstants.js";
 import { parseDataUri } from "../concerns/image.js";
-import { DEFAULT_IMAGE_MIME } from "../schema/index.js";
-import { ROLE, OPENAI_BLOCK, CLAUDE_BLOCK } from "../schema/index.js";
+import { DEFAULT_IMAGE_MIME } from "../schema/defaults.js";
+import { ROLE } from "../schema/roles.js";
+import { OPENAI_BLOCK, CLAUDE_BLOCK } from "../schema/blocks.js";
 
 /** Render a single tool call as a readable text line. */
 function toolCallToText(name, input) {

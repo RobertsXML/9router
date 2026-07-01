@@ -61,13 +61,15 @@ const CHAT_SEARCH_CONFIG = {
     extractAnswer: (data) => {
       const candidate = data?.candidates?.[0];
       const parts = candidate?.content?.parts || [];
-      const text = parts.map((p) => p?.text || "").filter(Boolean).join("");
+      const textParts = []; for (const p of parts) { if (p?.text) textParts.push(p.text); } const text = textParts.join("");
       const chunks = candidate?.groundingMetadata?.groundingChunks || [];
-      const citations = chunks
-        .map((ch) => ch?.web)
-        .filter(Boolean)
-        .map((w) => ({ url: w.uri || w.url, title: w.title || "" }))
-        .filter((c) => c.url);
+      const citations = [];
+      for (const ch of chunks) {
+        const w = ch?.web;
+        if (!w) continue;
+        const c = { url: w.uri || w.url, title: w.title || "" };
+        if (c.url) citations.push(c);
+      }
       const tokens = data?.usageMetadata?.totalTokenCount || 0;
       return { text, citations, tokens };
     }
@@ -94,13 +96,10 @@ const CHAT_SEARCH_CONFIG = {
       const msg = data?.choices?.[0]?.message || {};
       const text = msg.content || "";
       const annotations = Array.isArray(msg.annotations) ? msg.annotations : [];
-      const fromAnn = annotations
-        .map((a) => a?.url_citation)
-        .filter(Boolean)
-        .map((u) => ({ url: u.url, title: u.title || "" }));
-      const fromTop = Array.isArray(data?.citations)
-        ? data.citations.map(normalizeCitation).filter(Boolean)
-        : [];
+      const fromAnn = [];
+      for (const a of annotations) { const u = a?.url_citation; if (u) fromAnn.push({ url: u.url, title: u.title || "" }); }
+      const fromTop = [];
+      if (Array.isArray(data?.citations)) { for (const c of data.citations) { const r = normalizeCitation(c); if (r) fromTop.push(r); } }
       const citations = fromAnn.length ? fromAnn : fromTop;
       const tokens = data?.usage?.total_tokens || 0;
       return { text, citations, tokens };
@@ -268,7 +267,7 @@ const CHAT_SEARCH_CONFIG = {
       const text = msg.content || "";
       const raw = data?.citations || [];
       const citations = Array.isArray(raw)
-        ? raw.map(normalizeCitation).filter(Boolean)
+        ? raw.flatMap(c => { const r = normalizeCitation(c); return r ? [r] : []; })
         : [];
       const tokens = data?.usage?.total_tokens || 0;
       return { text, citations, tokens };

@@ -21,7 +21,7 @@ const msgWithCache = [
 
 describe("filterToOpenAIFormat cache_control handling (#2069)", () => {
   it("strips cache_control by default (all standard OpenAI providers)", () => {
-    const body = { messages: JSON.parse(JSON.stringify(msgWithCache)) };
+    const body = { messages: structuredClone(msgWithCache) };
     filterToOpenAIFormat(body);
     for (const msg of body.messages) {
       for (const block of msg.content) {
@@ -31,7 +31,7 @@ describe("filterToOpenAIFormat cache_control handling (#2069)", () => {
   });
 
   it("preserves cache_control when preserveCacheControl option is true (alicode/DashScope)", () => {
-    const body = { messages: JSON.parse(JSON.stringify(msgWithCache)) };
+    const body = { messages: structuredClone(msgWithCache) };
     filterToOpenAIFormat(body, { preserveCacheControl: true });
     for (const msg of body.messages) {
       for (const block of msg.content) {

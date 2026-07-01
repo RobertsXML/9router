@@ -137,6 +137,7 @@ export async function getKiroUsage(accessToken, providerSpecificData, proxyOptio
 
   for (const attempt of attempts) {
     try {
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: fallback chain, try next endpoint on failure
       const response = await attempt.run();
       if (!response.ok) {
         const errorText = await response.text().catch(() => "");

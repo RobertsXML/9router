@@ -11,6 +11,7 @@ export default function EndpointRow({ label, url, copyId, copied, onCopy, badge,
         }`}>{label}</span>
       <Input value={url} readOnly className="flex-1 font-mono text-sm" />
       <button
+        type="button"
         onClick={() => onCopy(url, copyId)}
         className="p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded text-text-muted hover:text-primary transition-colors shrink-0"
       >

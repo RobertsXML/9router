@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useReducer, useEffect, useMemo, useCallback, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { FREE_PROVIDERS, AI_PROVIDERS } from "@/shared/constants/providers";
 
@@ -15,7 +15,14 @@ import Card from "./Card";
 import OverviewCards from "@/app/(dashboard)/dashboard/usage/components/OverviewCards";
 import UsageTable, { fmt, fmtTime } from "@/app/(dashboard)/dashboard/usage/components/UsageTable";
 import ProviderTopology from "@/app/(dashboard)/dashboard/usage/components/ProviderTopology";
-import UsageChart from "@/app/(dashboard)/dashboard/usage/components/UsageChart";
+import dynamic from "next/dynamic";
+const UsageChart = dynamic(() => import("@/app/(dashboard)/dashboard/usage/components/UsageChart"), { ssr: false });
+
+const spinner = (
+  <div className="flex items-center justify-center py-12 text-text-muted">
+    <span className="material-symbols-outlined text-[32px] animate-spin">progress_activity</span>
+  </div>
+);
 
 function timeAgo(timestamp) {
   const diff = Math.floor((Date.now() - new Date(timestamp)) / 1000);
@@ -28,16 +35,17 @@ function timeAgo(timestamp) {
 // Auto-update time display every second without re-rendering parent
 function TimeAgo({ timestamp }) {
   const [, setTick] = useState(0);
-  
+
   useEffect(() => {
     const timer = setInterval(() => setTick(t => t + 1), 1000);
     return () => clearInterval(timer);
   }, []);
-  
+
   return <>{timeAgo(timestamp)}</>;
 }
 
-function RecentRequests({ requests = [] }) {
+const EMPTY_REQUESTS = [];
+function RecentRequests({ requests = EMPTY_REQUESTS }) {
   return (
     <Card className="flex min-w-0 flex-col overflow-hidden" padding="sm" style={{ height: 480 }}>
       {/* Header */}
@@ -52,7 +60,7 @@ function RecentRequests({ requests = [] }) {
           <table className="w-full min-w-[300px] border-collapse text-xs">
             <thead className="sticky top-0 bg-bg z-10">
               <tr className="border-b border-border">
-                <th className="py-1.5 text-left font-semibold text-text-muted w-2"></th>
+                <th className="py-1.5 text-left font-semibold text-text-muted w-2" aria-label="Status"></th>
                 <th className="py-1.5 text-left font-semibold text-text-muted">Model</th>
                 <th className="py-1.5 text-right font-semibold text-text-muted whitespace-nowrap">In / Out</th>
                 <th className="py-1.5 text-right font-semibold text-text-muted">When</th>
@@ -62,9 +70,9 @@ function RecentRequests({ requests = [] }) {
               {requests.map((r, i) => {
                 const ok = !r.status || r.status === "ok" || r.status === "success";
                 return (
-                  <tr key={i} className="hover:bg-bg-subtle transition-colors">
+                  <tr key={r.id || `${r.model}-${r.timestamp}-${i}`} className="hover:bg-bg-subtle transition-colors">
                     <td className="py-1.5">
-                      <span className={`block w-1.5 h-1.5 rounded-full ${ok ? "bg-success" : "bg-error"}`} />
+                      <span className={`block w-1.5 h-1.5 rounded-full ${ok ? "bg-success" : "bg-error"}`} aria-label={ok ? "Success" : "Error"} />
                     </td>
                     <td className="py-1.5 font-mono truncate max-w-[120px]" title={r.model}>{r.model}</td>
                     <td className="py-1.5 text-right whitespace-nowrap">
@@ -93,7 +101,7 @@ function sortData(dataMap, pendingMap = {}, sortBy, sortOrder) {
       const outputCost = totalTokens > 0 ? (data.completionTokens || 0) * (totalCost / totalTokens) : 0;
       return { ...data, key, totalTokens, totalCost, inputCost, outputCost, pending: pendingMap[key] || 0 };
     })
-    .sort((a, b) => {
+    .toSorted((a, b) => {
       let valA = a[sortBy];
       let valB = b[sortBy];
       if (typeof valA === "string") valA = valA.toLowerCase();
@@ -189,6 +197,115 @@ const PERIODS = [
   { value: "60d", label: "60D" },
 ];
 
+function PeriodSelector({ period, setPeriod, fetching }) {
+  return (
+    <div className="flex w-full items-center gap-2 sm:w-auto sm:self-end">
+      <div className="grid flex-1 grid-cols-5 items-center gap-1 rounded-lg border border-border bg-bg-subtle p-1 sm:flex sm:flex-none">
+        {PERIODS.map((p) => (
+          <button
+            type="button"
+            key={p.value}
+            onClick={() => setPeriod(p.value)}
+            disabled={fetching}
+            className={`rounded-md px-3 py-1 text-sm font-medium transition-colors ${period === p.value ? "bg-primary text-white shadow-sm" : "text-text-muted hover:bg-bg-hover hover:text-text"}`}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+      {fetching && (
+        <span className="material-symbols-outlined text-[16px] text-text-muted animate-spin">progress_activity</span>
+      )}
+    </div>
+  );
+}
+
+function StatsTableSection({ tableView, dispatch, viewMode, loading, activeTableConfig, toggleSort, sortBy, sortOrder }) {
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <select
+          value={tableView}
+          onChange={(e) => dispatch({ type: 'SET_TABLE_VIEW', payload: e.target.value })}
+          aria-label="Table view"
+          className="w-full rounded-lg border border-border bg-surface px-3 py-1.5 text-sm font-medium text-text-main focus:outline-none focus:ring-2 focus:ring-primary/50 sm:w-auto"
+          style={{ colorScheme: 'auto' }}
+        >
+          {TABLE_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+        <div className="grid grid-cols-2 items-center gap-1 rounded-lg border border-border bg-bg-subtle p-1 sm:flex">
+          <button
+            type="button"
+            onClick={() => dispatch({ type: 'SET_VIEW_MODE', payload: "costs" })}
+            className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${viewMode === "costs" ? "bg-primary text-white shadow-sm" : "text-text-muted hover:text-text hover:bg-bg-hover"}`}
+          >
+            Costs
+          </button>
+          <button
+            type="button"
+            onClick={() => dispatch({ type: 'SET_VIEW_MODE', payload: "tokens" })}
+            className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${viewMode === "tokens" ? "bg-primary text-white shadow-sm" : "text-text-muted hover:text-text hover:bg-bg-hover"}`}
+          >
+            Tokens
+          </button>
+        </div>
+      </div>
+      {loading ? spinner : activeTableConfig && (
+        <UsageTable
+          title=""
+          columns={activeTableConfig.columns}
+          groupedData={activeTableConfig.groupedData}
+          tableType={tableView}
+          sortBy={sortBy}
+          sortOrder={sortOrder}
+          onToggleSort={toggleSort}
+          viewMode={viewMode}
+          storageKey={activeTableConfig.storageKey}
+          renderSummaryCells={activeTableConfig.renderSummaryCells}
+          renderDetailCells={activeTableConfig.renderDetailCells}
+          emptyMessage={activeTableConfig.emptyMessage}
+        />
+      )}
+    </div>
+  );
+}
+
+const initialState = {
+  stats: null,
+  loading: true,
+  fetching: false,
+  tableView: "model",
+  viewMode: "costs",
+  providers: [],
+  periodLocal: "today",
+};
+
+function usageStatsReducer(state, action) {
+  switch (action.type) {
+    case 'SET_STATS':
+      return { ...state, stats: { ...(state.stats || {}), ...action.payload } };
+    case 'SSE_MERGE_STATS':
+      if (!state.stats) return state;
+      return { ...state, stats: { ...state.stats, ...action.payload } };
+    case 'SET_PROVIDERS':
+      return { ...state, providers: action.payload };
+    case 'SET_LOADING':
+      return { ...state, loading: action.payload };
+    case 'SET_FETCHING':
+      return { ...state, fetching: action.payload };
+    case 'SET_TABLE_VIEW':
+      return { ...state, tableView: action.payload };
+    case 'SET_VIEW_MODE':
+      return { ...state, viewMode: action.payload };
+    case 'SET_PERIOD':
+      return { ...state, periodLocal: action.payload };
+    default:
+      return state;
+  }
+}
+
 export default function UsageStats({ period: periodProp, setPeriod: setPeriodProp, hidePeriodSelector = false } = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -196,24 +313,20 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
   const sortBy = searchParams.get("sortBy") || "rawModel";
   const sortOrder = searchParams.get("sortOrder") || "asc";
 
-  const [stats, setStats] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [fetching, setFetching] = useState(false);
-  const [tableView, setTableView] = useState("model");
-  const [viewMode, setViewMode] = useState("costs");
-  const [providers, setProviders] = useState([]);
-  const [periodLocal, setPeriodLocal] = useState("today");
+  const [{ stats, loading, fetching, tableView, viewMode, providers, periodLocal }, dispatch] = useReducer(usageStatsReducer, initialState);
   const isInitialLoad = useRef(true);
   const hasLoadedStats = useRef(false);
   const period = periodProp ?? periodLocal;
+  const setPeriodLocal = useCallback((value) => dispatch({ type: 'SET_PERIOD', payload: value }), []);
   const setPeriod = setPeriodProp ?? setPeriodLocal;
 
   // Fetch connected providers once, deduplicate by provider type
   // Always include noAuth free providers (e.g. opencode) regardless of connections
   useEffect(() => {
+    const controller = new AbortController();
     Promise.all([
-      fetch("/api/providers").then((r) => r.ok ? r.json() : null),
-      fetch("/api/provider-nodes").then((r) => r.ok ? r.json() : null),
+      fetch("/api/providers", { signal: controller.signal }).then((r) => r.ok ? r.json() : null),
+      fetch("/api/provider-nodes", { signal: controller.signal }).then((r) => r.ok ? r.json() : null),
     ])
       .then(([d, nodesData]) => {
         // Build node name lookup for custom providers
@@ -222,47 +335,49 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
           nodeNameMap[node.id] = node.name;
         }
         const seen = new Set();
-        const unique = (d?.connections || []).filter((c) => {
-          if (c.isActive === false) return false;
-          if (!isLLMProvider(c.provider)) return false;
-          if (seen.has(c.provider)) return false;
+        const unique = (d?.connections || []).flatMap((c) => {
+          if (c.isActive === false) return [];
+          if (!isLLMProvider(c.provider)) return [];
+          if (seen.has(c.provider)) return [];
           seen.add(c.provider);
-          return true;
-        }).map((c) => ({
-          ...c,
-          nodeName: nodeNameMap[c.provider] || null,
-        }));
+          return [{ ...c, nodeName: nodeNameMap[c.provider] || null }];
+        });
         const noAuthProviders = Object.values(FREE_PROVIDERS)
-          .filter((p) => p.noAuth && !seen.has(p.id) && isLLMProvider(p.id))
-          .map((p) => ({ provider: p.id, name: p.name }));
-        setProviders([...unique, ...noAuthProviders]);
+          .flatMap((p) => p.noAuth && !seen.has(p.id) && isLLMProvider(p.id) ? [{ provider: p.id, name: p.name }] : []);
+        dispatch({ type: 'SET_PROVIDERS', payload: [...unique, ...noAuthProviders] });
       })
-      .catch(() => {});
+      .catch((err) => { if (err.name !== "AbortError") console.error(err); });
+    return () => controller.abort();
   }, []);
 
   // Fetch filtered stats via REST when period changes
+  const periodRef = useRef(period);
+  periodRef.current = period;
   useEffect(() => {
     // First load: show full spinner; subsequent: show subtle fetching indicator
     if (isInitialLoad.current) {
       isInitialLoad.current = false;
-      setLoading(true);
+      dispatch({ type: 'SET_LOADING', payload: true });
     } else {
-      setFetching(true);
+      dispatch({ type: 'SET_FETCHING', payload: true });
     }
 
-    fetch(`/api/usage/stats?period=${period}`)
+    const currentPeriod = periodRef.current;
+    const controller = new AbortController();
+    fetch(`/api/usage/stats?period=${currentPeriod}`, { signal: controller.signal })
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
         if (data) {
           hasLoadedStats.current = true;
-          setStats((prev) => ({ ...prev, ...data }));
+          dispatch({ type: 'SET_STATS', payload: data });
         }
       })
-      .catch(() => {})
+      .catch((err) => { if (err.name !== "AbortError") console.error(err); })
       .finally(() => {
-        setLoading(false);
-        setFetching(false);
+        dispatch({ type: 'SET_LOADING', payload: false });
+        dispatch({ type: 'SET_FETCHING', payload: false });
       });
+    return () => controller.abort();
   }, [period]);
 
   // SSE connection - real-time updates for activeRequests + recentRequests only
@@ -273,23 +388,22 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
       try {
         const data = JSON.parse(e.data);
         // Always merge only real-time fields, never overwrite full stats from REST
-        setStats((prev) => {
-          if (!prev) return prev;
-          return {
-            ...prev,
+        dispatch({
+          type: 'SSE_MERGE_STATS',
+          payload: {
             activeRequests: data.activeRequests,
             recentRequests: data.recentRequests,
             errorProvider: data.errorProvider,
             pending: data.pending,
-          };
+          },
         });
-        if (hasLoadedStats.current) setLoading(false);
+        if (hasLoadedStats.current) dispatch({ type: 'SET_LOADING', payload: false });
       } catch (err) {
         console.error("[SSE CLIENT] parse error:", err);
       }
     };
 
-    es.onerror = () => setLoading(false);
+    es.onerror = () => dispatch({ type: 'SET_LOADING', payload: false });
 
     return () => es.close();
   }, []);
@@ -424,33 +538,11 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
 
   if (!stats && !loading) return <div className="text-text-muted">Failed to load usage statistics.</div>;
 
-  const spinner = (
-    <div className="flex items-center justify-center py-12 text-text-muted">
-      <span className="material-symbols-outlined text-[32px] animate-spin">progress_activity</span>
-    </div>
-  );
-
   return (
     <div className="flex min-w-0 flex-col gap-6">
       {/* Period selector (hidden when controlled by parent) */}
       {!hidePeriodSelector && (
-        <div className="flex w-full items-center gap-2 sm:w-auto sm:self-end">
-          <div className="grid flex-1 grid-cols-5 items-center gap-1 rounded-lg border border-border bg-bg-subtle p-1 sm:flex sm:flex-none">
-            {PERIODS.map((p) => (
-              <button
-                key={p.value}
-                onClick={() => setPeriod(p.value)}
-                disabled={fetching}
-                className={`rounded-md px-3 py-1 text-sm font-medium transition-colors ${period === p.value ? "bg-primary text-white shadow-sm" : "text-text-muted hover:bg-bg-hover hover:text-text"}`}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-          {fetching && (
-            <span className="material-symbols-outlined text-[16px] text-text-muted animate-spin">progress_activity</span>
-          )}
-        </div>
+        <PeriodSelector period={period} setPeriod={setPeriod} fetching={fetching} />
       )}
 
       {/* Overview cards */}
@@ -473,50 +565,16 @@ export default function UsageStats({ period: periodProp, setPeriod: setPeriodPro
       {loading ? spinner : <UsageChart period={period} />}
 
       {/* Table with dropdown selector */}
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <select
-            value={tableView}
-            onChange={(e) => setTableView(e.target.value)}
-            className="w-full rounded-lg border border-border bg-surface px-3 py-1.5 text-sm font-medium text-text-main focus:outline-none focus:ring-2 focus:ring-primary/50 sm:w-auto"
-            style={{ colorScheme: 'auto' }}
-          >
-            {TABLE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
-          <div className="grid grid-cols-2 items-center gap-1 rounded-lg border border-border bg-bg-subtle p-1 sm:flex">
-            <button
-              onClick={() => setViewMode("costs")}
-              className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${viewMode === "costs" ? "bg-primary text-white shadow-sm" : "text-text-muted hover:text-text hover:bg-bg-hover"}`}
-            >
-              Costs
-            </button>
-            <button
-              onClick={() => setViewMode("tokens")}
-              className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${viewMode === "tokens" ? "bg-primary text-white shadow-sm" : "text-text-muted hover:text-text hover:bg-bg-hover"}`}
-            >
-              Tokens
-            </button>
-          </div>
-        </div>
-        {loading ? spinner : activeTableConfig && (
-          <UsageTable
-            title=""
-            columns={activeTableConfig.columns}
-            groupedData={activeTableConfig.groupedData}
-            tableType={tableView}
-            sortBy={sortBy}
-            sortOrder={sortOrder}
-            onToggleSort={toggleSort}
-            viewMode={viewMode}
-            storageKey={activeTableConfig.storageKey}
-            renderSummaryCells={activeTableConfig.renderSummaryCells}
-            renderDetailCells={activeTableConfig.renderDetailCells}
-            emptyMessage={activeTableConfig.emptyMessage}
-          />
-        )}
-      </div>
+      <StatsTableSection
+        tableView={tableView}
+        dispatch={dispatch}
+        viewMode={viewMode}
+        loading={loading}
+        activeTableConfig={activeTableConfig}
+        toggleSort={toggleSort}
+        sortBy={sortBy}
+        sortOrder={sortOrder}
+      />
     </div>
   );
 }

@@ -22,4 +22,3 @@ setImmediate(() => {
   ensureOutboundProxyInitialized().catch(console.log);
 });
 
-export default ensureOutboundProxyInitialized;

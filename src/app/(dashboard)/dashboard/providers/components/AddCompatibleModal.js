@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useReducer } from "react";
 import PropTypes from "prop-types";
 import { Badge, Button, Input, Modal, Select } from "@/shared/components";
 
@@ -34,6 +34,38 @@ const API_TYPE_OPTIONS = [
   { value: "responses", label: "Responses API" },
 ];
 
+function ValidationResult({ result }) {
+  if (!result) return null;
+  const { valid, error, method } = result;
+  if (valid) {
+    return (
+      <>
+        <Badge variant="success">Valid</Badge>
+        {method === "chat" && (
+          <span className="text-sm text-text-muted">(via inference test)</span>
+        )}
+      </>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      <Badge variant="error">Invalid</Badge>
+      {error && <span className="text-sm text-red-500">{error}</span>}
+    </div>
+  );
+}
+
+function validationReducer(state, action) {
+  switch (action.type) {
+    case 'SET_KEY': return { ...state, checkKey: action.payload };
+    case 'SET_MODEL_ID': return { ...state, checkModelId: action.payload };
+    case 'VALIDATING': return { ...state, validating: true };
+    case 'SET_RESULT': return { ...state, validating: false, validationResult: action.payload };
+    case 'RESET': return { checkKey: "", checkModelId: "", validating: false, validationResult: null };
+    default: return state;
+  }
+}
+
 function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
   const config = VARIANT_CONFIG[variant];
   const initialFormData = () => ({
@@ -45,21 +77,13 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
 
   const [formData, setFormData] = useState(initialFormData);
   const [submitting, setSubmitting] = useState(false);
-  const [checkKey, setCheckKey] = useState("");
-  const [checkModelId, setCheckModelId] = useState("");
-  const [validating, setValidating] = useState(false);
-  const [validationResult, setValidationResult] = useState(null);
+  const [{ checkKey, checkModelId, validating, validationResult }, dispatchValidation] = useReducer(validationReducer, { checkKey: "", checkModelId: "", validating: false, validationResult: null });
 
-  // openai: reset baseUrl when apiType changes; anthropic: reset checks when opened
-  useEffect(() => {
-    if (config.hasApiType) {
-      setFormData((prev) => ({ ...prev, baseUrl: config.defaultBaseUrl }));
-    } else if (isOpen) {
-      setValidationResult(null);
-      setCheckKey("");
-      setCheckModelId("");
-    }
-  }, [config.hasApiType ? formData.apiType : isOpen]);
+  const handleClose = () => {
+    setFormData(initialFormData());
+    dispatchValidation({ type: 'RESET' });
+    onClose();
+  };
 
   const handleSubmit = async () => {
     if (!formData.name.trim() || !formData.prefix.trim() || !formData.baseUrl.trim()) return;
@@ -80,8 +104,7 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
       if (res.ok) {
         onCreated(data.node);
         setFormData(initialFormData());
-        setCheckKey("");
-        setValidationResult(null);
+        dispatchValidation({ type: 'RESET' });
       }
     } catch (error) {
       console.log(`Error creating ${config.errorLabel} node:`, error);
@@ -91,7 +114,7 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
   };
 
   const handleValidate = async () => {
-    setValidating(true);
+    dispatchValidation({ type: 'VALIDATING' });
     try {
       const res = await fetch("/api/provider-nodes/validate", {
         method: "POST",
@@ -104,37 +127,14 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
         }),
       });
       const data = await res.json();
-      setValidationResult(data);
+      dispatchValidation({ type: 'SET_RESULT', payload: data });
     } catch {
-      setValidationResult({ valid: false, error: "Network error" });
-    } finally {
-      setValidating(false);
+      dispatchValidation({ type: 'SET_RESULT', payload: { valid: false, error: "Network error" } });
     }
-  };
-
-  const renderValidationResult = () => {
-    if (!validationResult) return null;
-    const { valid, error, method } = validationResult;
-    if (valid) {
-      return (
-        <>
-          <Badge variant="success">Valid</Badge>
-          {method === "chat" && (
-            <span className="text-sm text-text-muted">(via inference test)</span>
-          )}
-        </>
-      );
-    }
-    return (
-      <div className="flex flex-col gap-1">
-        <Badge variant="error">Invalid</Badge>
-        {error && <span className="text-sm text-red-500">{error}</span>}
-      </div>
-    );
   };
 
   return (
-    <Modal isOpen={isOpen} title={config.title} onClose={onClose}>
+    <Modal isOpen={isOpen} title={config.title} onClose={handleClose}>
       <div className="flex flex-col gap-4">
         <Input
           label="Name"
@@ -169,12 +169,12 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
           label="API Key (for Check)"
           type="password"
           value={checkKey}
-          onChange={(e) => setCheckKey(e.target.value)}
+          onChange={(e) => dispatchValidation({ type: 'SET_KEY', payload: e.target.value })}
         />
         <Input
           label="Model ID (optional)"
           value={checkModelId}
-          onChange={(e) => setCheckModelId(e.target.value)}
+          onChange={(e) => dispatchValidation({ type: 'SET_MODEL_ID', payload: e.target.value })}
           placeholder={config.modelIdPlaceholder}
           hint="If provider lacks /models endpoint, enter a model ID to validate via chat/completions instead."
         />
@@ -187,7 +187,7 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
           >
             {validating ? "Checking..." : "Check"}
           </Button>
-          {renderValidationResult()}
+          <ValidationResult result={validationResult} />
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
           <Button
@@ -202,7 +202,7 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
           >
             {submitting ? "Creating..." : "Create"}
           </Button>
-          <Button onClick={onClose} variant="ghost" fullWidth>
+          <Button onClick={handleClose} variant="ghost" fullWidth>
             Cancel
           </Button>
         </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useReducer } from "react";
 import { Card } from "@/shared/components";
 import { getProviderAlias } from "@/shared/constants/providers";
 import { getModelKind } from "@/shared/constants/models";
@@ -8,98 +8,122 @@ import { getModelsByProviderId } from "@/shared/constants/models";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { Row } from "./exampleShared";
 
+function formReducer(state, action) {
+  switch (action.type) {
+    case 'SET_FIELD': return { ...state, [action.field]: action.value };
+    default: return state;
+  }
+}
+
+function connectionReducer(state, action) {
+  switch (action.type) {
+    case 'SET_FIELD': return { ...state, [action.field]: action.value };
+    default: return state;
+  }
+}
+
+function requestReducer(state, action) {
+  switch (action.type) {
+    case 'SET_RUNNING': return { ...state, running: true, error: "", result: null, latency: null };
+    case 'SET_RESULT': return { ...state, running: false, result: action.payload.data, latency: action.payload.latency };
+    case 'SET_ERROR': return { ...state, running: false, error: action.payload };
+    default: return state;
+  }
+}
+
 export function SttExampleCard({ providerId }) {
   const providerAlias = getProviderAlias(providerId);
   const builtinSttModels = getModelsByProviderId(providerId).filter((m) => getModelKind(m) === "stt");
   const [customSttModels, setCustomSttModels] = useState([]);
   const sttModels = [...builtinSttModels, ...customSttModels];
 
-  const [selectedModel, setSelectedModel] = useState(builtinSttModels[0]?.id ?? "");
-  const selectedModelObj = sttModels.find((m) => m.id === selectedModel);
+  const [form, dispatchForm] = useReducer(formReducer, {
+    selectedModel: builtinSttModels[0]?.id ?? "",
+    audioFile: null,
+    language: "",
+    prompt: "",
+    responseFormat: "json",
+    temperature: "",
+  });
+  const selectedModelObj = sttModels.find((m) => m.id === form.selectedModel);
   const allowedParams = Array.isArray(selectedModelObj?.params) ? selectedModelObj.params : [];
 
-  const [audioFile, setAudioFile] = useState(null);
-  const [language, setLanguage] = useState("");
-  const [prompt, setPrompt] = useState("");
-  const [responseFormat, setResponseFormat] = useState("json");
-  const [temperature, setTemperature] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [useTunnel, setUseTunnel] = useState(false);
-  const [localEndpoint, setLocalEndpoint] = useState("");
-  const [tunnelEndpoint, setTunnelEndpoint] = useState("");
-  const [result, setResult] = useState(null);
-  const [latency, setLatency] = useState(null);
-  const [running, setRunning] = useState(false);
-  const [error, setError] = useState("");
+  const [connection, dispatchConnection] = useReducer(connectionReducer, {
+    apiKey: "",
+    useTunnel: false,
+    localEndpoint: window.location.origin,
+    tunnelEndpoint: "",
+  });
+  const [{ result, latency, running, error }, dispatchRequest] = useReducer(requestReducer, { result: null, latency: null, running: false, error: "" });
   const { copied: copiedCurl, copy: copyCurl } = useCopyToClipboard();
   const { copied: copiedRes, copy: copyRes } = useCopyToClipboard();
 
+  const providerAliasRef = useRef(providerAlias);
+  providerAliasRef.current = providerAlias;
   useEffect(() => {
-    setLocalEndpoint(window.location.origin);
-    fetch("/api/keys")
+    const controller = new AbortController();
+    fetch("/api/keys", { signal: controller.signal })
       .then((r) => r.json())
-      .then((d) => { setApiKey((d.keys || []).find((k) => k.isActive !== false)?.key || ""); })
-      .catch(() => {});
-    fetch("/api/tunnel/status")
+      .then((d) => { dispatchConnection({ type: 'SET_FIELD', field: 'apiKey', value: (d.keys || []).find((k) => k.isActive !== false)?.key || "" }); })
+      .catch((err) => { if (err.name !== "AbortError") console.error(err); });
+    fetch("/api/tunnel/status", { signal: controller.signal })
       .then((r) => r.json())
-      .then((d) => { if (d.publicUrl) setTunnelEndpoint(d.publicUrl); })
-      .catch(() => {});
+      .then((d) => { if (d.publicUrl) dispatchConnection({ type: 'SET_FIELD', field: 'tunnelEndpoint', value: d.publicUrl }); })
+      .catch((err) => { if (err.name !== "AbortError") console.error(err); });
     const loadCustom = () => {
-      fetch("/api/models/custom", { cache: "no-store" })
+      fetch("/api/models/custom", { cache: "no-store", signal: controller.signal })
         .then((r) => r.json())
         .then((d) => {
-          const list = (d.models || []).filter((m) => getModelKind(m) === "stt" && m.providerAlias === providerAlias);
+          const list = (d.models || []).filter((m) => getModelKind(m) === "stt" && m.providerAlias === providerAliasRef.current);
           setCustomSttModels(list);
         })
-        .catch(() => {});
+        .catch((err) => { if (err.name !== "AbortError") console.error(err); });
     };
+    // eslint-disable-next-line react-doctor/no-initialize-state -- async fetch cannot use useState initializer
     loadCustom();
     window.addEventListener("focus", loadCustom);
     window.addEventListener("customModelChanged", loadCustom);
     return () => {
+      controller.abort();
       window.removeEventListener("focus", loadCustom);
       window.removeEventListener("customModelChanged", loadCustom);
     };
-  }, [providerAlias]);
+  }, []);
 
-  const endpoint = useTunnel ? tunnelEndpoint : localEndpoint;
-  const modelFull = selectedModel ? `${providerAlias}/${selectedModel}` : "";
+  const endpoint = connection.useTunnel ? connection.tunnelEndpoint : connection.localEndpoint;
+  const modelFull = form.selectedModel ? `${providerAlias}/${form.selectedModel}` : "";
 
   const curlSnippet = `curl -X POST ${endpoint}/v1/audio/transcriptions \\
-  -H "Authorization: Bearer ${apiKey || "YOUR_KEY"}" \\
-  -F "file=@${audioFile?.name || "audio.mp3"}" \\
-  -F "model=${modelFull}"${allowedParams.includes("language") && language ? ` \\\n  -F "language=${language}"` : ""}${allowedParams.includes("response_format") ? ` \\\n  -F "response_format=${responseFormat}"` : ""}${allowedParams.includes("temperature") && temperature ? ` \\\n  -F "temperature=${temperature}"` : ""}${allowedParams.includes("prompt") && prompt ? ` \\\n  -F "prompt=${prompt}"` : ""}`;
+  -H "Authorization: Bearer ${connection.apiKey || "YOUR_KEY"}" \\
+  -F "file=@${form.audioFile?.name || "audio.mp3"}" \\
+  -F "model=${modelFull}"${allowedParams.includes("language") && form.language ? ` \\\n  -F "language=${form.language}"` : ""}${allowedParams.includes("response_format") ? ` \\\n  -F "response_format=${form.responseFormat}"` : ""}${allowedParams.includes("temperature") && form.temperature ? ` \\\n  -F "temperature=${form.temperature}"` : ""}${allowedParams.includes("prompt") && form.prompt ? ` \\\n  -F "prompt=${form.prompt}"` : ""}`;
 
   const handleRun = async () => {
-    if (!audioFile || !modelFull) return;
-    setRunning(true);
-    setError("");
-    setResult(null);
+    if (!form.audioFile || !modelFull) return;
+    dispatchRequest({ type: 'SET_RUNNING' });
     const start = Date.now();
     try {
       const fd = new FormData();
-      fd.append("file", audioFile);
+      fd.append("file", form.audioFile);
       fd.append("model", modelFull);
-      if (allowedParams.includes("language") && language) fd.append("language", language);
-      if (allowedParams.includes("response_format")) fd.append("response_format", responseFormat);
-      if (allowedParams.includes("temperature") && temperature) fd.append("temperature", temperature);
-      if (allowedParams.includes("prompt") && prompt) fd.append("prompt", prompt);
+      if (allowedParams.includes("language") && form.language) fd.append("language", form.language);
+      if (allowedParams.includes("response_format")) fd.append("response_format", form.responseFormat);
+      if (allowedParams.includes("temperature") && form.temperature) fd.append("temperature", form.temperature);
+      if (allowedParams.includes("prompt") && form.prompt) fd.append("prompt", form.prompt);
 
       const headers = {};
-      if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+      if (connection.apiKey) headers["Authorization"] = `Bearer ${connection.apiKey}`;
       const res = await fetch("/api/v1/audio/transcriptions", { method: "POST", headers, body: fd });
-      setLatency(Date.now() - start);
+      const sttLatency = Date.now() - start;
       const ct = res.headers.get("content-type") || "";
       const data = ct.includes("application/json") ? await res.json() : await res.text();
       if (!res.ok) {
-        setError(data?.error?.message || data?.error || data || `HTTP ${res.status}`);
+        dispatchRequest({ type: 'SET_ERROR', payload: data?.error?.message || data?.error || data || `HTTP ${res.status}` });
         return;
       }
-      setResult(data);
+      dispatchRequest({ type: 'SET_RESULT', payload: { data, latency: sttLatency } });
     } catch (e) {
-      setError(e.message || "Network error");
-    } finally {
-      setRunning(false);
+      dispatchRequest({ type: 'SET_ERROR', payload: e.message || "Network error" });
     }
   };
 
@@ -113,8 +137,8 @@ export function SttExampleCard({ providerId }) {
         {sttModels.length > 0 ? (
           <Row label="Model">
             <select
-              value={selectedModel}
-              onChange={(e) => setSelectedModel(e.target.value)}
+              value={form.selectedModel}
+              onChange={(e) => dispatchForm({ type: 'SET_FIELD', field: 'selectedModel', value: e.target.value })}
               className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"
             >
               {sttModels.map((m) => (
@@ -125,9 +149,10 @@ export function SttExampleCard({ providerId }) {
         ) : (
           <Row label="Model">
             <input
-              value={selectedModel}
-              onChange={(e) => setSelectedModel(e.target.value)}
+              value={form.selectedModel}
+              onChange={(e) => dispatchForm({ type: 'SET_FIELD', field: 'selectedModel', value: e.target.value })}
               placeholder="Enter model id"
+              aria-label="Model"
               className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary font-mono"
             />
           </Row>
@@ -139,12 +164,13 @@ export function SttExampleCard({ providerId }) {
             <span className="w-full min-w-0 flex-1 px-3 py-1.5 text-sm font-mono text-text-main bg-sidebar rounded-lg truncate">
               {endpoint}/v1/audio/transcriptions
             </span>
-            {tunnelEndpoint && (
+            {connection.tunnelEndpoint && (
               <button
-                onClick={() => setUseTunnel((v) => !v)}
-                title={useTunnel ? "Using tunnel" : "Using local"}
+                type="button"
+                onClick={() => dispatchConnection({ type: 'SET_FIELD', field: 'useTunnel', value: !connection.useTunnel })}
+                title={connection.useTunnel ? "Using tunnel" : "Using local"}
                 className={`flex items-center gap-1 text-xs px-2 py-1.5 rounded-lg border shrink-0 transition-colors ${
-                  useTunnel ? "border-primary/40 bg-primary/10 text-primary" : "border-border text-text-muted hover:text-primary"
+                  connection.useTunnel ? "border-primary/40 bg-primary/10 text-primary" : "border-border text-text-muted hover:text-primary"
                 }`}
               >
                 <span className="material-symbols-outlined text-[14px]">wifi_tethering</span>
@@ -157,7 +183,7 @@ export function SttExampleCard({ providerId }) {
         {/* API Key */}
         <Row label="API Key">
           <span className="px-3 py-1.5 text-sm font-mono text-text-main bg-sidebar rounded-lg truncate block">
-            {apiKey ? `${apiKey.slice(0, 8)}${"\u2022".repeat(Math.min(20, apiKey.length - 8))}` : <span className="text-text-muted italic">No key configured</span>}
+            {connection.apiKey ? `${connection.apiKey.slice(0, 8)}${"•".repeat(Math.min(20, connection.apiKey.length - 8))}` : <span className="text-text-muted italic">No key configured</span>}
           </span>
         </Row>
 
@@ -167,12 +193,13 @@ export function SttExampleCard({ providerId }) {
             <input
               type="file"
               accept="audio/*,video/mp4,.m4a,.mp3,.wav,.ogg,.flac,.webm,.opus"
-              onChange={(e) => setAudioFile(e.target.files?.[0] || null)}
+              onChange={(e) => dispatchForm({ type: 'SET_FIELD', field: 'audioFile', value: e.target.files?.[0] || null })}
+              aria-label="Audio file"
               className="w-full text-xs text-text-muted file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border file:border-border file:bg-background file:text-text-main hover:file:bg-sidebar file:cursor-pointer"
             />
-            {audioFile && (
+            {form.audioFile && (
               <span className="text-xs text-text-muted font-mono">
-                {audioFile.name} · {(audioFile.size / 1024).toFixed(1)} KB
+                {form.audioFile.name} · {(form.audioFile.size / 1024).toFixed(1)} KB
               </span>
             )}
           </div>
@@ -182,9 +209,10 @@ export function SttExampleCard({ providerId }) {
         {allowedParams.includes("language") && (
           <Row label="Language">
             <input
-              value={language}
-              onChange={(e) => setLanguage(e.target.value)}
+              value={form.language}
+              onChange={(e) => dispatchForm({ type: 'SET_FIELD', field: 'language', value: e.target.value })}
               placeholder="e.g. en, vi, ja (auto-detect if empty)"
+              aria-label="Language"
               className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary font-mono"
             />
           </Row>
@@ -194,9 +222,10 @@ export function SttExampleCard({ providerId }) {
         {allowedParams.includes("prompt") && (
           <Row label="Prompt">
             <input
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
+              value={form.prompt}
+              onChange={(e) => dispatchForm({ type: 'SET_FIELD', field: 'prompt', value: e.target.value })}
               placeholder="optional context to improve accuracy"
+              aria-label="Prompt"
               className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"
             />
           </Row>
@@ -210,9 +239,10 @@ export function SttExampleCard({ providerId }) {
               step="0.1"
               min="0"
               max="1"
-              value={temperature}
-              onChange={(e) => setTemperature(e.target.value)}
+              value={form.temperature}
+              onChange={(e) => dispatchForm({ type: 'SET_FIELD', field: 'temperature', value: e.target.value })}
               placeholder="0 - 1 (default 0)"
+              aria-label="Temperature"
               className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"
             />
           </Row>
@@ -222,8 +252,8 @@ export function SttExampleCard({ providerId }) {
         {allowedParams.includes("response_format") && (
           <Row label="Response Format">
             <select
-              value={responseFormat}
-              onChange={(e) => setResponseFormat(e.target.value)}
+              value={form.responseFormat}
+              onChange={(e) => dispatchForm({ type: 'SET_FIELD', field: 'responseFormat', value: e.target.value })}
               className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"
             >
               <option value="json">json</option>
@@ -241,6 +271,7 @@ export function SttExampleCard({ providerId }) {
             <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">Request</span>
             <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
               <button
+                type="button"
                 onClick={() => copyCurl(curlSnippet)}
                 className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-primary transition-colors"
               >
@@ -248,8 +279,9 @@ export function SttExampleCard({ providerId }) {
                 {copiedCurl ? "Copied" : "Copy"}
               </button>
               <button
+                type="button"
                 onClick={handleRun}
-                disabled={running || !audioFile || !modelFull}
+                disabled={running || !form.audioFile || !modelFull}
                 className="flex w-full sm:w-auto items-center justify-center gap-1.5 px-3 py-1 rounded-lg bg-primary text-white text-xs font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <span className="material-symbols-outlined text-[14px]" style={running ? { animation: "spin 1s linear infinite" } : undefined}>
@@ -272,6 +304,7 @@ export function SttExampleCard({ providerId }) {
             </span>
             {result && (
               <button
+                type="button"
                 onClick={() => copyRes(resultStr)}
                 className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-primary transition-colors"
               >

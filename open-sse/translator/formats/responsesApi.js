@@ -1,4 +1,5 @@
-import { ROLE, OPENAI_BLOCK, RESPONSES_ITEM } from "../schema/index.js";
+import { ROLE } from "../schema/roles.js";
+import { OPENAI_BLOCK, RESPONSES_ITEM } from "../schema/blocks.js";
 
 /**
  * Normalize Responses API input to array format.
@@ -28,7 +29,7 @@ export function normalizeResponsesInput(input) {
  * Responses API uses: { input: [...], instructions: "..." }
  * Chat API uses: { messages: [...] }
  */
-export function convertResponsesApiFormat(body) {
+function convertResponsesApiFormat(body) {
   if (!body.input) return body;
 
   const result = { ...body };

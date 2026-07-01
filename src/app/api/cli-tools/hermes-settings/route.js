@@ -6,15 +6,16 @@ import { promisify } from "util";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
+import { withLocalAuth } from "@/app/api/_lib/auth";
 
 const execAsync = promisify(exec);
 
 const PROVIDER_NAME = "9router";
 const API_KEY_ENV = "OPENAI_API_KEY";
 
-const getHermesDir = () => path.join(os.homedir(), ".hermes");
-const getHermesConfigPath = () => path.join(getHermesDir(), "config.yaml");
-const getHermesEnvPath = () => path.join(getHermesDir(), ".env");
+const HERMES_DIR = path.join(os.homedir(), ".hermes");
+const HERMES_CONFIG_PATH = path.join(HERMES_DIR, "config.yaml");
+const HERMES_ENV_PATH = path.join(HERMES_DIR, ".env");
 
 // Match top-level "model:" block (until next non-indented, non-empty line)
 const MODEL_BLOCK_RE = /^model:[ \t]*\r?\n((?:[ \t]+.*\r?\n?|[ \t]*\r?\n)*)/m;
@@ -66,7 +67,7 @@ const checkHermesInstalled = async () => {
     return true;
   } catch {
     try {
-      await fs.access(getHermesConfigPath());
+      await fs.access(HERMES_CONFIG_PATH);
       return true;
     } catch {
       return false;
@@ -76,7 +77,7 @@ const checkHermesInstalled = async () => {
 
 const readConfigYaml = async () => {
   try {
-    return await fs.readFile(getHermesConfigPath(), "utf-8");
+    return await fs.readFile(HERMES_CONFIG_PATH, "utf-8");
   } catch (error) {
     if (error.code === "ENOENT") return "";
     throw error;
@@ -85,7 +86,7 @@ const readConfigYaml = async () => {
 
 const readEnvFile = async () => {
   try {
-    return await fs.readFile(getHermesEnvPath(), "utf-8");
+    return await fs.readFile(HERMES_ENV_PATH, "utf-8");
   } catch (error) {
     if (error.code === "ENOENT") return "";
     throw error;
@@ -98,7 +99,7 @@ const has9RouterConfig = (modelCfg) => {
   return modelCfg.provider === "custom" && /localhost|127\.0\.0\.1|0\.0\.0\.0/.test(modelCfg.base_url);
 };
 
-export async function GET() {
+export const GET = withLocalAuth(async () => {
   try {
     const installed = await checkHermesInstalled();
     if (!installed) {
@@ -110,55 +111,51 @@ export async function GET() {
       installed: true,
       settings: { model },
       has9Router: has9RouterConfig(model),
-      configPath: getHermesConfigPath(),
+      configPath: HERMES_CONFIG_PATH,
     });
   } catch (error) {
-    console.log("Error checking hermes settings:", error);
     return NextResponse.json({ error: "Failed to check hermes settings" }, { status: 500 });
   }
-}
+});
 
-export async function POST(request) {
+export const POST = withLocalAuth(async (request) => {
   try {
     const { baseUrl, apiKey, model } = await request.json();
     if (!baseUrl || !model) {
       return NextResponse.json({ error: "baseUrl and model are required" }, { status: 400 });
     }
 
-    const dir = getHermesDir();
-    await fs.mkdir(dir, { recursive: true });
+    await fs.mkdir(HERMES_DIR, { recursive: true });
 
     const normalizedBaseUrl = baseUrl.endsWith("/v1") ? baseUrl : `${baseUrl}/v1`;
 
     // Update config.yaml — replace/insert model: block, keep everything else
     const existingYaml = await readConfigYaml();
     const newYaml = upsertModelBlock(existingYaml, buildModelBlock(model, normalizedBaseUrl));
-    await fs.writeFile(getHermesConfigPath(), newYaml);
+    await fs.writeFile(HERMES_CONFIG_PATH, newYaml);
 
     // Update .env — upsert OPENAI_API_KEY only when caller provides one
     if (apiKey) {
       const existingEnv = await readEnvFile();
       const newEnv = upsertEnvVar(existingEnv, API_KEY_ENV, apiKey);
-      await fs.writeFile(getHermesEnvPath(), newEnv);
+      await fs.writeFile(HERMES_ENV_PATH, newEnv);
     }
 
     return NextResponse.json({
       success: true,
       message: "Hermes settings applied successfully!",
-      configPath: getHermesConfigPath(),
+      configPath: HERMES_CONFIG_PATH,
     });
   } catch (error) {
-    console.log("Error updating hermes settings:", error);
     return NextResponse.json({ error: "Failed to update hermes settings" }, { status: 500 });
   }
-}
+});
 
-export async function DELETE() {
+export const DELETE = withLocalAuth(async () => {
   try {
-    const configPath = getHermesConfigPath();
     let yaml = "";
     try {
-      yaml = await fs.readFile(configPath, "utf-8");
+      yaml = await fs.readFile(HERMES_CONFIG_PATH, "utf-8");
     } catch (error) {
       if (error.code === "ENOENT") {
         return NextResponse.json({ success: true, message: "No config file to reset" });
@@ -166,10 +163,9 @@ export async function DELETE() {
       throw error;
     }
     const newYaml = removeModelBlock(yaml);
-    await fs.writeFile(configPath, newYaml);
+    await fs.writeFile(HERMES_CONFIG_PATH, newYaml);
     return NextResponse.json({ success: true, message: `${PROVIDER_NAME} model block removed` });
   } catch (error) {
-    console.log("Error resetting hermes settings:", error);
     return NextResponse.json({ error: "Failed to reset hermes settings" }, { status: 500 });
   }
-}
+});

@@ -8,15 +8,14 @@ const MODEL_LOCK_PREFIX = "modelLock_";
 
 function getActiveModelLocks(connection) {
   const now = Date.now();
-  return Object.entries(connection)
-    .filter(([key, value]) => key.startsWith(MODEL_LOCK_PREFIX) && value)
-    .map(([key, value]) => ({
-      key,
-      model: key.slice(MODEL_LOCK_PREFIX.length) || "__all",
-      until: value,
-      active: new Date(value).getTime() > now,
-    }))
-    .filter((lock) => lock.active);
+  const result = [];
+  for (const [key, value] of Object.entries(connection)) {
+    if (key.startsWith(MODEL_LOCK_PREFIX) && value) {
+      const lock = { key, model: key.slice(MODEL_LOCK_PREFIX.length) || "__all", until: value, active: new Date(value).getTime() > now };
+      if (lock.active) result.push(lock);
+    }
+  }
+  return result;
 }
 
 export async function GET() {
@@ -74,23 +73,16 @@ export async function POST(request) {
     const connections = await getProviderConnections({ provider });
     const lockKey = `${MODEL_LOCK_PREFIX}${model}`;
 
-    await Promise.all(
-      connections
-        .filter((connection) => connection[lockKey])
-        .map((connection) =>
-          updateProviderConnection(connection.id, {
-            [lockKey]: null,
-            ...(connection.testStatus === "unavailable"
-              ? {
-                  testStatus: "active",
-                  lastError: null,
-                  lastErrorAt: null,
-                  backoffLevel: 0,
-                }
-              : {}),
-          }),
-        ),
-    );
+    const updates = [];
+    for (const connection of connections) {
+      if (connection[lockKey]) {
+        updates.push(updateProviderConnection(connection.id, {
+          [lockKey]: null,
+          ...(connection.testStatus === "unavailable" ? { testStatus: "active", lastError: null, lastErrorAt: null, backoffLevel: 0 } : {}),
+        }));
+      }
+    }
+    await Promise.all(updates);
 
     return NextResponse.json({ ok: true });
   } catch (error) {

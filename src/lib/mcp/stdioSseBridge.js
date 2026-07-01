@@ -3,6 +3,7 @@
 
 const { spawn } = require("child_process");
 const crypto = require("crypto");
+// Static require — resolved by bundler at build time. Only preset plugins allowed (RCE prevention).
 const { LOCAL_STDIO_PLUGINS } = require("@/shared/constants/coworkPlugins");
 
 const G_KEY = "__9routerMcpBridges";
@@ -102,8 +103,11 @@ const getStore = () => {
 };
 
 // Only preset stdio plugins may spawn. No user-defined commands (RCE prevention).
+// Spawn args are validated against a hardcoded package allowlist — never passed raw from imports.
+const ALLOWED_PACKAGES = Object.freeze(new Set(["@browsermcp/mcp@latest"]));
+const VALID_PLUGIN_NAMES = Object.freeze(new Set(LOCAL_STDIO_PLUGINS.map((p) => p.name)));
 function findPlugin(name) {
-  return LOCAL_STDIO_PLUGINS.find((p) => p.name === name) || null;
+  return VALID_PLUGIN_NAMES.has(name) ? name : null;
 }
 
 function getOrSpawn(name) {
@@ -111,10 +115,12 @@ function getOrSpawn(name) {
   let entry = store.get(name);
   if (entry?.proc && !entry.proc.killed && entry.proc.exitCode === null) return entry;
 
-  const plugin = findPlugin(name);
-  if (!plugin) throw new Error(`Unknown local plugin: ${name}`);
+  if (!VALID_PLUGIN_NAMES.has(name)) throw new Error(`Unknown local plugin: ${name}`);
 
-  const proc = spawn(plugin.command, plugin.args, { stdio: ["pipe", "pipe", "pipe"], env: process.env });
+  // Resolve args: use only validated package names from the allowlist
+  const plugin = LOCAL_STDIO_PLUGINS.find((p) => p.name === name);
+  const safeArgs = (plugin?.args || []).filter((a) => ALLOWED_PACKAGES.has(a));
+  const proc = spawn("npx", ["-y", ...safeArgs], { stdio: ["pipe", "pipe", "pipe"], env: process.env });
   entry = { proc, sessions: new Map(), buffer: "" };
   store.set(name, entry);
 
@@ -122,6 +128,7 @@ function getOrSpawn(name) {
   proc.stdout.on("data", (chunk) => {
     entry.buffer += chunk.toString("utf8");
     let idx;
+    // eslint-disable-next-line react-doctor/js-set-map-lookups -- string search, not array
     while ((idx = entry.buffer.indexOf("\n")) >= 0) {
       const raw = entry.buffer.slice(0, idx).trim();
       entry.buffer = entry.buffer.slice(idx + 1);

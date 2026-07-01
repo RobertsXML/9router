@@ -174,4 +174,4 @@ export class VertexExecutor extends BaseExecutor {
   }
 }
 
-export default VertexExecutor;
+// ponytail: removed unused default export; add back if dynamic import pattern changes

@@ -13,7 +13,7 @@
  * Registered on the direct route by ../index.js; reached only when source
  * format is Claude and target is Kiro.
  */
-import { register } from "../index.js";
+import { register } from "../registry.js";
 import { FORMATS } from "../formats.js";
 
 function stopThinkingBlock(state, results) {
@@ -215,7 +215,7 @@ export function kiroToClaudeResponse(chunk, state) {
  * a defensive helper for any non-streaming caller that hands us an aggregated
  * OpenAI-shaped completion.
  */
-export function kiroToClaudeNonStreaming(data) {
+function kiroToClaudeNonStreaming(data) {
   const content = [];
   const choice = data?.choices?.[0];
   const message = choice?.message || {};
@@ -225,19 +225,20 @@ export function kiroToClaudeNonStreaming(data) {
   }
   if (Array.isArray(message.tool_calls)) {
     for (const tc of message.tool_calls) {
+      const fn = tc.function;
       let input = {};
       try {
         input =
-          typeof tc.function?.arguments === "string"
-            ? JSON.parse(tc.function.arguments)
-            : tc.function?.arguments || {};
+          typeof fn?.arguments === "string"
+            ? JSON.parse(fn.arguments)
+            : fn?.arguments || {};
       } catch {
         input = {};
       }
       content.push({
         type: "tool_use",
         id: tc.id || `toolu_${Date.now()}`,
-        name: tc.function?.name || "",
+        name: fn?.name || "",
         input,
       });
     }

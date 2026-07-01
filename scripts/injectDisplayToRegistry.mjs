@@ -2,9 +2,10 @@
  * Script: đọc providersDisplay.js + providers.js, inject display+category+uiAlias+extra vào từng registry file.
  * Chạy: node scripts/injectDisplayToRegistry.mjs
  */
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import vm from "node:vm";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -19,9 +20,12 @@ const displayBody = displaySrc
   .replace(/^export const /gm, "const ")
   .replace(/^export function /gm, "function ")
   .replace(/^const RISK_NOTICE\s*=.*$/m, ""); // remove redeclaration
-// eslint-disable-next-line no-new-func
-const getDisplay = new Function("RISK_NOTICE", `${displayBody}; return PROVIDER_DISPLAY;`);
-const DISPLAY = getDisplay(RISK_NOTICE);
+const sandbox = { RISK_NOTICE };
+vm.createContext(sandbox);
+const DISPLAY = vm.runInNewContext(
+  `(function(RISK_NOTICE) { ${displayBody}; return PROVIDER_DISPLAY; })(RISK_NOTICE)`,
+  sandbox
+);
 
 // ── 2. Build CATEGORY + EXTRA map từ providers.js ──
 // Map: providerId → { category, uiAlias, extra fields }

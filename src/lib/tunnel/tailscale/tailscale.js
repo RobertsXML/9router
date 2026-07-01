@@ -138,6 +138,7 @@ function bgRefreshLoggedIn() {
 async function probeStatusAsync(bin) {
   for (const socketArgs of [SOCKET_FLAG, SYSTEM_SOCKET_FLAG]) {
     try {
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: try sockets in order
       const { stdout } = await execAsync(`"${bin}" ${socketArgs.join(" ")} status --json`, {
         windowsHide: true, env: { ...process.env, PATH: EXTENDED_PATH }, timeout: PROBE_TIMEOUT_MS,
       });
@@ -256,7 +257,7 @@ function getActualFunnelUrl() {
 }
 
 /** Get funnel URL from tailscale status (cached, non-blocking) */
-export function getTailscaleFunnelUrl(port) {
+function getTailscaleFunnelUrl(port) {
   if (Date.now() - funnelUrlCache.fetchedAt > PROBE_TTL_MS || funnelUrlCache.port !== port) {
     bgRefreshFunnelUrl(port);
   }
@@ -419,11 +420,17 @@ async function installTailscaleLinux(sudoPassword, log) {
 
 async function installTailscaleWindows(log) {
   const msiUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi";
+  // Validate update source is from official Tailscale domain
+  const parsedUrl = new URL(msiUrl);
+  if (parsedUrl.hostname !== "pkgs.tailscale.com" || parsedUrl.protocol !== "https:") {
+    throw new Error("Invalid Tailscale download URL");
+  }
   const msiPath = path.join(os.tmpdir(), "tailscale-setup.msi");
 
   // Download MSI via curl.exe (built-in on Win10+) — no PowerShell window, streams progress
   log("Downloading Tailscale installer...");
   await new Promise((resolve, reject) => {
+    // eslint-disable-next-line react-doctor/plugin-update-trust-risk -- msiUrl is a hardcoded constant validated above
     const child = spawn("curl.exe", ["-L", "-#", "-o", msiPath, msiUrl], {
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true
@@ -467,6 +474,7 @@ async function installTailscaleWindows(log) {
       log("Installation complete.");
       return;
     }
+    // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: poll for binary
     await new Promise((r) => setTimeout(r, 1000));
   }
   throw new Error("Installation finished but tailscale.exe not found");
@@ -549,6 +557,7 @@ export async function startDaemonWithPassword(sudoPassword) {
           return;
         }
       } catch { /* daemon not ready */ }
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: poll backend state
       await new Promise((r) => setTimeout(r, 500));
     }
     console.log("[Tailscale] win: BackendState still NoState after poll");
@@ -842,7 +851,7 @@ export function stopFunnel() {
 }
 
 /** Kill tailscaled daemon (runs as root, needs sudo) */
-export async function stopDaemon(sudoPassword) {
+async function stopDaemon(sudoPassword) {
   // Try non-sudo first
   try { execSync("pkill -x tailscaled", { stdio: "ignore", windowsHide: true, timeout: 3000 }); } catch { /* ignore */ }
 

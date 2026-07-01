@@ -5,14 +5,14 @@ import { PROVIDER_MEDIA, PROVIDER_MODELS } from "../../providers/index.js";
 const TTS_CFG = PROVIDER_MEDIA["gemini"]?.ttsConfig || {};
 const TTS_BASE = TTS_CFG.baseUrl;
 const FALLBACK_MODEL = "gemini-3.1-flash-tts-preview";
-const KNOWN_MODELS = [
+const _ttsModels = [
   ...(TTS_CFG.models || []),
   ...(PROVIDER_MODELS["gemini-tts-models"] || []),
   ...(PROVIDER_MODELS.gemini || []).filter((m) => (m.kind || m.type) === "tts"),
-]
-  .map((m) => m?.id)
-  .filter(Boolean)
-  .filter((id, index, list) => list.indexOf(id) === index);
+];
+const _seen = new Set();
+const KNOWN_MODELS = [];
+for (const m of _ttsModels) { const id = m?.id; if (id && !_seen.has(id)) { _seen.add(id); KNOWN_MODELS.push(id); } }
 const DEFAULT_MODEL = KNOWN_MODELS[0] || FALLBACK_MODEL;
 const DEFAULT_VOICE = "Kore";
 

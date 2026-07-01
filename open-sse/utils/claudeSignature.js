@@ -13,7 +13,7 @@ function stripCachePrefix(rawSignature) {
   return idx >= 0 ? sig.slice(idx + 1).trim() : sig;
 }
 
-export function hasClaudeSignaturePrefix(rawSignature) {
+function hasClaudeSignaturePrefix(rawSignature) {
   const sig = stripCachePrefix(rawSignature);
   return sig.length > 0 && (sig[0] === "E" || sig[0] === "R");
 }

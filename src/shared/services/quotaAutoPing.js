@@ -139,6 +139,7 @@ async function drainResponseBody(response) {
 
   try {
     while (true) {
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: stream reader
       const { done } = await reader.read();
       if (done) return;
     }
@@ -271,10 +272,12 @@ export async function runQuotaAutoPingTick(deps = createDefaultDeps(), state = g
       const enabledMap = settings?.[providerConfig.settingsKey]?.connections || {};
       if (Object.keys(enabledMap).length === 0) continue;
 
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: provider iteration depends on prior ping state
       const conns = await deps.getProviderConnections({ provider, isActive: true });
       const targets = conns.filter((conn) => conn.authType === "oauth" && enabledMap[conn.id] === true);
       for (const conn of targets) {
         try {
+          // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: rate-limit upstream pings
           await pingConnection(conn, provider, providerConfig, handler, deps, state);
         } catch (e) {
           state.failureCache[cacheKey(provider, conn.id)] = Date.now();

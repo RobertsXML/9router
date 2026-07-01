@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useReducer } from "react";
 import { Card } from "@/shared/components";
 import { getProviderAlias, isCustomEmbeddingProvider } from "@/shared/constants/providers";
 import { getModelsByProviderId, getModelKind } from "@/shared/constants/models";
@@ -18,61 +18,96 @@ const DEFAULT_RESPONSE_EXAMPLE = `{
   "usage": { "prompt_tokens": 9, "total_tokens": 9 }
 }`;
 
+function formatResultJson(data) {
+  if (!data) return DEFAULT_RESPONSE_EXAMPLE;
+  const clone = structuredClone(data);
+  (clone.data || []).forEach((item) => {
+    if (Array.isArray(item.embedding) && item.embedding.length > 4) {
+      item.embedding = [...item.embedding.slice(0, 4).map((v) => parseFloat(v.toFixed(6))), `... (${item.embedding.length} dims)`];
+    }
+  });
+  return JSON.stringify(clone, null, 2);
+}
+
+function formReducer(state, action) {
+  switch (action.type) {
+    case 'SET_FIELD': return { ...state, [action.field]: action.value };
+    default: return state;
+  }
+}
+
+function connectionReducer(state, action) {
+  switch (action.type) {
+    case 'SET_FIELD': return { ...state, [action.field]: action.value };
+    default: return state;
+  }
+}
+
+function requestReducer(state, action) {
+  switch (action.type) {
+    case 'SET_RUNNING': return { ...state, running: true, error: "", result: null };
+    case 'SET_RESULT': return { ...state, running: false, result: action.payload };
+    case 'SET_ERROR': return { ...state, running: false, error: action.payload };
+    default: return state;
+  }
+}
+
 export function EmbeddingExampleCard({ providerId, customAlias }) {
   const isCustom = isCustomEmbeddingProvider(providerId);
   const providerAlias = isCustom ? (customAlias || providerId) : getProviderAlias(providerId);
   const embeddingModels = isCustom ? [] : getModelsByProviderId(providerId).filter((m) => getModelKind(m) === "embedding");
 
-  const [selectedModel, setSelectedModel] = useState(embeddingModels[0]?.id ?? "");
-  const [input, setInput] = useState("The quick brown fox jumps over the lazy dog");
-  const [dimensions, setDimensions] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [useTunnel, setUseTunnel] = useState(false);
-  const [localEndpoint, setLocalEndpoint] = useState("");
-  const [tunnelEndpoint, setTunnelEndpoint] = useState("");
-  const [result, setResult] = useState(null);
-  const [running, setRunning] = useState(false);
-  const [error, setError] = useState("");
+  const [form, dispatchForm] = useReducer(formReducer, {
+    selectedModel: embeddingModels[0]?.id ?? "",
+    input: "The quick brown fox jumps over the lazy dog",
+    dimensions: "",
+  });
+  const [connection, dispatchConnection] = useReducer(connectionReducer, {
+    apiKey: "",
+    useTunnel: false,
+    localEndpoint: window.location.origin,
+    tunnelEndpoint: "",
+  });
+  const [{ result, running, error }, dispatchRequest] = useReducer(requestReducer, { result: null, running: false, error: "" });
   const { copied: copiedCurl, copy: copyCurl } = useCopyToClipboard();
   const { copied: copiedRes, copy: copyRes } = useCopyToClipboard();
 
   useEffect(() => {
-    setLocalEndpoint(window.location.origin);
-    fetch("/api/keys")
+    const controller = new AbortController();
+    fetch("/api/keys", { signal: controller.signal })
       .then((r) => r.json())
-      .then((d) => { setApiKey((d.keys || []).find((k) => k.isActive !== false)?.key || ""); })
-      .catch(() => {});
-    fetch("/api/tunnel/status")
+      .then((d) => { dispatchConnection({ type: 'SET_FIELD', field: 'apiKey', value: (d.keys || []).find((k) => k.isActive !== false)?.key || "" }); })
+      .catch((err) => { if (err.name !== "AbortError") console.error(err); });
+    fetch("/api/tunnel/status", { signal: controller.signal })
       .then((r) => r.json())
-      .then((d) => { if (d.publicUrl) setTunnelEndpoint(d.publicUrl); })
-      .catch(() => {});
+      .then((d) => { if (d.publicUrl) dispatchConnection({ type: 'SET_FIELD', field: 'tunnelEndpoint', value: d.publicUrl }); })
+      .catch((err) => { if (err.name !== "AbortError") console.error(err); });
+    return () => controller.abort();
   }, []);
 
-  const endpoint = useTunnel ? tunnelEndpoint : localEndpoint;
-  const modelFull = selectedModel ? `${providerAlias}/${selectedModel}` : "";
+  const endpoint = connection.useTunnel ? connection.tunnelEndpoint : connection.localEndpoint;
+  const modelFull = form.selectedModel ? `${providerAlias}/${form.selectedModel}` : "";
 
   // Build request body — include dimensions only if user provided a positive number
   const buildBody = () => {
-    const body = { model: modelFull, input: input.trim() };
-    const dim = Number(dimensions);
-    if (dimensions && Number.isFinite(dim) && dim > 0) body.dimensions = dim;
+    const body = { model: modelFull, input: form.input.trim() };
+    const dim = Number(form.dimensions);
+    if (form.dimensions && Number.isFinite(dim) && dim > 0) body.dimensions = dim;
     return body;
   };
 
   const curlSnippet = `curl -X POST ${endpoint}/v1/embeddings \\
   -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer ${apiKey || "YOUR_KEY"}" \\
+  -H "Authorization: Bearer ${connection.apiKey || "YOUR_KEY"}" \\
   -d '${JSON.stringify(buildBody())}'`;
 
   const handleRun = async () => {
-    if (!input.trim() || !modelFull) return;
-    setRunning(true);
-    setError("");
-    setResult(null);
+    if (!form.input.trim() || !modelFull) return;
+    dispatchRequest({ type: 'SET_RUNNING' });
     const start = Date.now();
     try {
       const headers = { "Content-Type": "application/json" };
-      if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+      if (connection.apiKey) headers["Authorization"] = `Bearer ${connection.apiKey}`;
       const res = await fetch("/api/v1/embeddings", {
         method: "POST",
         headers,
@@ -80,25 +115,11 @@ export function EmbeddingExampleCard({ providerId, customAlias }) {
       });
       const latencyMs = Date.now() - start;
       const data = await res.json();
-      if (!res.ok) { setError(data?.error?.message || data?.error || `HTTP ${res.status}`); return; }
-      setResult({ data, latencyMs });
+      if (!res.ok) { dispatchRequest({ type: 'SET_ERROR', payload: data?.error?.message || data?.error || `HTTP ${res.status}` }); return; }
+      dispatchRequest({ type: 'SET_RESULT', payload: { data, latencyMs } });
     } catch (e) {
-      setError(e.message || "Network error");
-    } finally {
-      setRunning(false);
+      dispatchRequest({ type: 'SET_ERROR', payload: e.message || "Network error" });
     }
-  };
-
-  // Compact embedding array: first 4 values + count
-  const formatResultJson = (data) => {
-    if (!data) return DEFAULT_RESPONSE_EXAMPLE;
-    const clone = JSON.parse(JSON.stringify(data));
-    (clone.data || []).forEach((item) => {
-      if (Array.isArray(item.embedding) && item.embedding.length > 4) {
-        item.embedding = [...item.embedding.slice(0, 4).map((v) => parseFloat(v.toFixed(6))), `... (${item.embedding.length} dims)`];
-      }
-    });
-    return JSON.stringify(clone, null, 2);
   };
 
   const resultJson = result ? JSON.stringify(result.data, null, 2) : "";
@@ -112,15 +133,17 @@ export function EmbeddingExampleCard({ providerId, customAlias }) {
         <Row label="Model">
           {isCustom ? (
             <input
-              value={selectedModel}
-              onChange={(e) => setSelectedModel(e.target.value)}
+              value={form.selectedModel}
+              onChange={(e) => dispatchForm({ type: 'SET_FIELD', field: 'selectedModel', value: e.target.value })}
               placeholder="e.g. voyage-3, embed-english-v3.0, text-embedding-3-small"
+              aria-label="Model"
               className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary font-mono"
             />
           ) : (
             <select
-              value={selectedModel}
-              onChange={(e) => setSelectedModel(e.target.value)}
+              value={form.selectedModel}
+              onChange={(e) => dispatchForm({ type: 'SET_FIELD', field: 'selectedModel', value: e.target.value })}
+              aria-label="Model"
               className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"
             >
               {embeddingModels.map((m) => (
@@ -135,17 +158,19 @@ export function EmbeddingExampleCard({ providerId, customAlias }) {
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
             <input
               value={endpoint}
-              onChange={(e) => useTunnel ? setTunnelEndpoint(e.target.value) : setLocalEndpoint(e.target.value)}
+              onChange={(e) => connection.useTunnel ? dispatchConnection({ type: 'SET_FIELD', field: 'tunnelEndpoint', value: e.target.value }) : dispatchConnection({ type: 'SET_FIELD', field: 'localEndpoint', value: e.target.value })}
               className="w-full min-w-0 flex-1 px-3 py-1.5 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary font-mono"
               placeholder="http://localhost:3000"
+              aria-label="Endpoint"
             />
             {/* Tunnel toggle — only show if tunnel URL is available */}
-            {tunnelEndpoint && (
+            {connection.tunnelEndpoint && (
               <button
-                onClick={() => setUseTunnel((v) => !v)}
-                title={useTunnel ? "Using tunnel" : "Using local"}
+                type="button"
+                onClick={() => dispatchConnection({ type: 'SET_FIELD', field: 'useTunnel', value: !connection.useTunnel })}
+                title={connection.useTunnel ? "Using tunnel" : "Using local"}
                 className={`flex items-center gap-1 text-xs px-2 py-1.5 rounded-lg border shrink-0 transition-colors ${
-                  useTunnel ? "border-primary/40 bg-primary/10 text-primary" : "border-border text-text-muted hover:text-primary"
+                  connection.useTunnel ? "border-primary/40 bg-primary/10 text-primary" : "border-border text-text-muted hover:text-primary"
                 }`}
               >
                 <span className="material-symbols-outlined text-[14px]">wifi_tethering</span>
@@ -159,9 +184,10 @@ export function EmbeddingExampleCard({ providerId, customAlias }) {
         <Row label="API Key">
           <input
             type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
+            value={connection.apiKey}
+            onChange={(e) => dispatchConnection({ type: 'SET_FIELD', field: 'apiKey', value: e.target.value })}
             placeholder="sk-..."
+            aria-label="API Key"
             className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary font-mono"
           />
         </Row>
@@ -170,14 +196,15 @@ export function EmbeddingExampleCard({ providerId, customAlias }) {
         <Row label="Input">
           <div className="relative">
             <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
+              value={form.input}
+              onChange={(e) => dispatchForm({ type: 'SET_FIELD', field: 'input', value: e.target.value })}
+              aria-label="Input text"
               className="w-full px-3 py-1.5 pr-7 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"
             />
-            {input && (
+            {form.input && (
               <button
                 type="button"
-                onClick={() => setInput("")}
+                onClick={() => dispatchForm({ type: 'SET_FIELD', field: 'input', value: "" })}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-primary transition-colors"
               >
                 <span className="material-symbols-outlined text-[14px]">close</span>
@@ -191,9 +218,10 @@ export function EmbeddingExampleCard({ providerId, customAlias }) {
           <input
             type="number"
             min="1"
-            value={dimensions}
-            onChange={(e) => setDimensions(e.target.value)}
+            value={form.dimensions}
+            onChange={(e) => dispatchForm({ type: 'SET_FIELD', field: 'dimensions', value: e.target.value })}
             placeholder="optional, e.g. 512, 1024 (leave empty for default)"
+            aria-label="Dimensions"
             className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-background focus:outline-none focus:border-primary"
           />
         </Row>
@@ -204,6 +232,7 @@ export function EmbeddingExampleCard({ providerId, customAlias }) {
             <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">Request</span>
             <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
               <button
+                type="button"
                 onClick={() => copyCurl(curlSnippet)}
                 className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-primary transition-colors"
               >
@@ -211,8 +240,9 @@ export function EmbeddingExampleCard({ providerId, customAlias }) {
                 {copiedCurl ? "Copied" : "Copy"}
               </button>
               <button
+                type="button"
                 onClick={handleRun}
-                disabled={running || !input.trim() || !modelFull}
+                disabled={running || !form.input.trim() || !modelFull}
                 className="flex w-full sm:w-auto items-center justify-center gap-1.5 px-3 py-1 rounded-lg bg-primary text-white text-xs font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <span className="material-symbols-outlined text-[14px]" style={running ? { animation: "spin 1s linear infinite" } : undefined}>
@@ -236,6 +266,7 @@ export function EmbeddingExampleCard({ providerId, customAlias }) {
             </span>
             {result && (
               <button
+                type="button"
                 onClick={() => copyRes(resultJson)}
                 className="inline-flex items-center gap-1 text-xs text-text-muted hover:text-primary transition-colors"
               >

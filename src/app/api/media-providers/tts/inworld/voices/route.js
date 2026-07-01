@@ -27,6 +27,7 @@ export async function GET(request) {
     const voices = data.voices || [];
 
     const byLang = {};
+    const voiceIdsByLang = {};
     for (const v of voices) {
       // Each voice has `languages: ["en", "es", ...]`
       const langs = Array.isArray(v.languages) && v.languages.length ? v.languages : ["en"];
@@ -37,8 +38,10 @@ export async function GET(request) {
             name: (() => { try { return langNames.of(code); } catch { return code; } })(),
             voices: [],
           };
+          voiceIdsByLang[code] = new Set();
         }
-        if (!byLang[code].voices.find((x) => x.id === v.voiceId)) {
+        if (!voiceIdsByLang[code].has(v.voiceId)) {
+          voiceIdsByLang[code].add(v.voiceId);
           byLang[code].voices.push({
             id: v.voiceId,
             name: v.displayName || v.voiceId,
@@ -49,7 +52,7 @@ export async function GET(request) {
       }
     }
 
-    const languages = Object.values(byLang).sort((a, b) => a.name.localeCompare(b.name));
+    const languages = Object.values(byLang).toSorted((a, b) => a.name.localeCompare(b.name));
 
     if (langFilter) {
       return NextResponse.json({ voices: byLang[langFilter]?.voices || [] });

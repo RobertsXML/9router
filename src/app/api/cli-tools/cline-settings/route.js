@@ -6,12 +6,13 @@ import { promisify } from "util";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
+import { withLocalAuth } from "@/app/api/_lib/auth";
 
 const execAsync = promisify(exec);
 
-const getDataDir = () => path.join(os.homedir(), ".cline", "data");
-const getGlobalStatePath = () => path.join(getDataDir(), "globalState.json");
-const getSecretsPath = () => path.join(getDataDir(), "secrets.json");
+const DATA_DIR = path.join(os.homedir(), ".cline", "data");
+const GLOBAL_STATE_PATH = path.join(DATA_DIR, "globalState.json");
+const SECRETS_PATH = path.join(DATA_DIR, "secrets.json");
 
 const checkInstalled = async () => {
   try {
@@ -24,7 +25,7 @@ const checkInstalled = async () => {
     return true;
   } catch {
     try {
-      await fs.access(getGlobalStatePath());
+      await fs.access(GLOBAL_STATE_PATH);
       return true;
     } catch {
       return false;
@@ -35,11 +36,9 @@ const checkInstalled = async () => {
 const readJson = async (filePath) => {
   try {
     const content = await fs.readFile(filePath, "utf-8");
-    // Tolerate JSONC (trailing commas) and treat unparseable files as "no config"
-    // rather than throwing a 500 that the UI misreads as "tool not installed".
     const stripped = content.replace(/,(\s*[}\]])/g, "$1");
     return JSON.parse(stripped);
-  } catch (error) {
+  } catch {
     return null;
   }
 };
@@ -52,13 +51,13 @@ const has9RouterConfig = (globalState) => {
   return isOpenAi && (baseUrl.includes("localhost") || baseUrl.includes("127.0.0.1") || baseUrl.includes("9router"));
 };
 
-export async function GET() {
+export const GET = withLocalAuth(async () => {
   try {
     const installed = await checkInstalled();
     if (!installed) {
       return NextResponse.json({ installed: false, settings: null, message: "Cline CLI is not installed" });
     }
-    const globalState = await readJson(getGlobalStatePath());
+    const globalState = await readJson(GLOBAL_STATE_PATH);
     return NextResponse.json({
       installed: true,
       settings: {
@@ -68,48 +67,46 @@ export async function GET() {
         openAiModelId: globalState?.openAiModelId,
       },
       has9Router: has9RouterConfig(globalState),
-      globalStatePath: getGlobalStatePath(),
+      globalStatePath: GLOBAL_STATE_PATH,
     });
   } catch (error) {
-    console.log("Error checking cline settings:", error);
     return NextResponse.json({ error: "Failed to check cline settings" }, { status: 500 });
   }
-}
+});
 
-export async function POST(request) {
+export const POST = withLocalAuth(async (request) => {
   try {
     const { baseUrl, apiKey, model } = await request.json();
     if (!baseUrl || !apiKey || !model) {
       return NextResponse.json({ error: "baseUrl, apiKey and model are required" }, { status: 400 });
     }
 
-    await fs.mkdir(getDataDir(), { recursive: true });
+    await fs.mkdir(DATA_DIR, { recursive: true });
 
     // Cline expects base WITHOUT /v1
     const normalizedBaseUrl = baseUrl.endsWith("/v1") ? baseUrl.slice(0, -3) : baseUrl;
 
-    const globalState = (await readJson(getGlobalStatePath())) || {};
+    const globalState = (await readJson(GLOBAL_STATE_PATH)) || {};
     globalState.actModeApiProvider = "openai";
     globalState.planModeApiProvider = "openai";
     globalState.openAiBaseUrl = normalizedBaseUrl;
     globalState.openAiModelId = model;
     globalState.planModeOpenAiModelId = model;
-    await fs.writeFile(getGlobalStatePath(), JSON.stringify(globalState, null, 2));
+    await fs.writeFile(GLOBAL_STATE_PATH, JSON.stringify(globalState, null, 2));
 
-    const secrets = (await readJson(getSecretsPath())) || {};
+    const secrets = (await readJson(SECRETS_PATH)) || {};
     secrets.openAiApiKey = apiKey;
-    await fs.writeFile(getSecretsPath(), JSON.stringify(secrets, null, 2));
+    await fs.writeFile(SECRETS_PATH, JSON.stringify(secrets, null, 2));
 
-    return NextResponse.json({ success: true, message: "Cline settings applied successfully!", globalStatePath: getGlobalStatePath() });
+    return NextResponse.json({ success: true, message: "Cline settings applied successfully!", globalStatePath: GLOBAL_STATE_PATH });
   } catch (error) {
-    console.log("Error updating cline settings:", error);
     return NextResponse.json({ error: "Failed to update cline settings" }, { status: 500 });
   }
-}
+});
 
-export async function DELETE() {
+export const DELETE = withLocalAuth(async () => {
   try {
-    const globalState = await readJson(getGlobalStatePath());
+    const globalState = await readJson(GLOBAL_STATE_PATH);
     if (!globalState) {
       return NextResponse.json({ success: true, message: "No settings file to reset" });
     }
@@ -121,15 +118,14 @@ export async function DELETE() {
       globalState.actModeApiProvider = "cline";
       globalState.planModeApiProvider = "cline";
     }
-    await fs.writeFile(getGlobalStatePath(), JSON.stringify(globalState, null, 2));
+    await fs.writeFile(GLOBAL_STATE_PATH, JSON.stringify(globalState, null, 2));
 
-    const secrets = (await readJson(getSecretsPath())) || {};
+    const secrets = (await readJson(SECRETS_PATH)) || {};
     delete secrets.openAiApiKey;
-    await fs.writeFile(getSecretsPath(), JSON.stringify(secrets, null, 2));
+    await fs.writeFile(SECRETS_PATH, JSON.stringify(secrets, null, 2));
 
     return NextResponse.json({ success: true, message: "9Router settings removed from Cline" });
   } catch (error) {
-    console.log("Error resetting cline settings:", error);
     return NextResponse.json({ error: "Failed to reset cline settings" }, { status: 500 });
   }
-}
+});

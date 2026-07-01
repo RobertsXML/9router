@@ -143,6 +143,7 @@ export async function getMiniMaxUsage(apiKey, provider, proxyOptions = null) {
     const canFallback = index < usageUrls.length - 1;
 
     try {
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: fallback chain, try next URL on failure
       const response = await proxyAwareFetch(usageUrl, {
         method: "GET",
         headers: {

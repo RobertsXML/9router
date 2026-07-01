@@ -132,7 +132,7 @@ function checkAllDNSStatus() {
     const hostsContent = fs.readFileSync(HOSTS_FILE, "utf8");
     const result = {};
     for (const [tool, hosts] of Object.entries(TOOL_HOSTS)) {
-      result[tool] = hosts.every(h => hostsContent.includes(h));
+      result[tool] = hosts.every(h => hostsContent.includes(h)); // eslint-disable-line react-doctor/js-set-map-lookups -- string substring check, not array
     }
     return result;
   } catch {
@@ -220,6 +220,7 @@ async function removeDNSEntry(tool, sudoPassword) {
 async function removeAllDNSEntries(sudoPassword) {
   for (const tool of Object.keys(TOOL_HOSTS)) {
     try {
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: modifies hosts file
       await removeDNSEntry(tool, sudoPassword);
     } catch (e) {
       err(`DNS ${tool}: failed to remove — ${e.message}`);

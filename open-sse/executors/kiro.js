@@ -66,8 +66,12 @@ export class KiroExecutor extends BaseExecutor {
     const authMethod = credentials?.providerSpecificData?.authMethod;
     const isCodeWhispererSurface = authMethod === "api_key" || authMethod === "external_idp";
     if (!isCodeWhispererSurface) return baseUrls;
-    const amazon = baseUrls.filter((u) => u.includes("amazonaws.com"));
-    const others = baseUrls.filter((u) => !u.includes("amazonaws.com"));
+    const amazon = [];
+    const others = [];
+    for (const u of baseUrls) {
+      // eslint-disable-next-line react-doctor/js-set-map-lookups -- string substring check, not array
+      (u.includes("amazonaws.com") ? amazon : others).push(u);
+    }
     return amazon.length > 0 ? [...amazon, ...others] : baseUrls;
   }
 
@@ -159,8 +163,10 @@ export class KiroExecutor extends BaseExecutor {
           if (!state.contextUsagePercentage) state.contextUsagePercentage = 0;
 
           // Handle assistantResponseEvent
-          if (eventType === "assistantResponseEvent" && event.payload?.content) {
-            let content = event.payload.content;
+          const payload = event.payload;
+          const payloadContent = payload?.content;
+          if (eventType === "assistantResponseEvent" && payloadContent) {
+            let content = payloadContent;
 
             // Kiro Claude models can leak <thinking> blocks into the content stream.
             // We strip these literal tags to prevent duplication, as the reasoning 

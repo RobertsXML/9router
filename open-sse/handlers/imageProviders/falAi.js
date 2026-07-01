@@ -21,6 +21,7 @@ export default {
     const { status_url, response_url } = await response.json();
     const deadline = Date.now() + POLL_TIMEOUT_MS;
     while (Date.now() < deadline) {
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential polling loop
       await sleep(POLL_INTERVAL_MS);
       const r = await fetch(status_url, { headers });
       if (!r.ok) throw new Error(`Fal status ${r.status}`);

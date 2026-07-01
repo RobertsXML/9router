@@ -2,6 +2,12 @@
 
 import { cn } from "@/shared/utils/cn";
 
+const sizes = {
+  sm: { track: "w-8 h-4", thumb: "size-3", translate: "translate-x-4" },
+  md: { track: "w-11 h-6", thumb: "size-5", translate: "translate-x-5" },
+  lg: { track: "w-14 h-7", thumb: "size-6", translate: "translate-x-7" },
+};
+
 export default function Toggle({
   checked = false,
   onChange,
@@ -11,12 +17,6 @@ export default function Toggle({
   size = "md",
   className,
 }) {
-  const sizes = {
-    sm: { track: "w-8 h-4", thumb: "size-3", translate: "translate-x-4" },
-    md: { track: "w-11 h-6", thumb: "size-5", translate: "translate-x-5" },
-    lg: { track: "w-14 h-7", thumb: "size-6", translate: "translate-x-7" },
-  };
-
   const handleClick = () => {
     if (!disabled && onChange) onChange(!checked);
   };
@@ -33,6 +33,7 @@ export default function Toggle({
         type="button"
         role="switch"
         aria-checked={checked}
+        aria-label={label || "Toggle"}
         disabled={disabled}
         onClick={handleClick}
         className={cn(

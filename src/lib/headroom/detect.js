@@ -29,6 +29,7 @@ const EXTENDED_PATH = [...EXTRA_BINS, process.env.PATH || ""].filter(Boolean).jo
 const PYTHON_CANDIDATES = ["python3.13", "python3.12", "python3.11", "python3.10", "python3", "python"];
 const MIN_VERSION = [3, 10];
 const HEADROOM_HEALTH_TIMEOUT_MS = 1500;
+// react-doctor local-rpc-native-bridge-risk: this set IS the origin validation — used by isLoopbackHeadroomUrl()
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"]);
 
 export const DEFAULT_HEADROOM_URL = process.env.HEADROOM_URL || "http://localhost:8787";
@@ -49,7 +50,7 @@ export function findHeadroomBinary() {
 }
 
 // Find a Python interpreter >= 3.10 (headroom-ai requires it). Returns null if none.
-export function findPython310() {
+function findPython310() {
   for (const candidate of PYTHON_CANDIDATES) {
     try {
       const ver = execSync(`${candidate} --version`, {
@@ -71,7 +72,7 @@ export function findPython310() {
 }
 
 // Probe whether a Headroom proxy is reachable at the given URL by hitting /health.
-export async function probeProxyRunning(url) {
+async function probeProxyRunning(url) {
   if (!url) return false;
   const base = String(url).replace(/\/$/, "");
   try {
@@ -85,6 +86,8 @@ export async function probeProxyRunning(url) {
 export function isLoopbackHeadroomUrl(url) {
   try {
     const parsed = new URL(url);
+    // Only allow http/https to prevent scheme-based bypasses
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
     return LOOPBACK_HOSTS.has(parsed.hostname);
   } catch {
     return false;

@@ -1,64 +1,102 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useReducer, useCallback, useMemo } from "react";
 import { Card, Button, ModelSelectModal, ManualConfigModal } from "@/shared/components";
 import Image from "next/image";
 import BaseUrlSelect from "./BaseUrlSelect";
 import ApiKeySelect from "./ApiKeySelect";
 import { matchKnownEndpoint } from "./cliEndpointMatch";
 
+const initialState = {
+  status: null,
+  checking: false,
+  applying: false,
+  restoring: false,
+  message: null,
+  showInstallGuide: false,
+  selectedApiKey: "",
+  selectedModel: "",
+  modalOpen: false,
+  modelAliases: {},
+  showManualConfigModal: false,
+  customBaseUrl: "",
+};
+
+const reducer = (state, action) => {
+  switch (action.type) {
+    case 'setStatus': return { ...state, status: action.value };
+    case 'setChecking': return { ...state, checking: action.value };
+    case 'setApplying': return { ...state, applying: action.value };
+    case 'setRestoring': return { ...state, restoring: action.value };
+    case 'setMessage': return { ...state, message: action.value };
+    case 'setShowInstallGuide': return { ...state, showInstallGuide: action.value };
+    case 'setSelectedApiKey': return { ...state, selectedApiKey: action.value };
+    case 'setSelectedModel': return { ...state, selectedModel: action.value };
+    case 'setModalOpen': return { ...state, modalOpen: action.value };
+    case 'setModelAliases': return { ...state, modelAliases: action.value };
+    case 'setShowManualConfigModal': return { ...state, showManualConfigModal: action.value };
+    case 'setCustomBaseUrl': return { ...state, customBaseUrl: action.value };
+    case 'reset': return initialState;
+    default: return state;
+  }
+};
+
 export default function ClineToolCard({ tool, isExpanded, onToggle, baseUrl, apiKeys, activeProviders, cloudEnabled, initialStatus, tunnelEnabled, tunnelPublicUrl, tailscaleEnabled, tailscaleUrl }) {
-  const [status, setStatus] = useState(initialStatus || null);
-  const [checking, setChecking] = useState(false);
-  const [applying, setApplying] = useState(false);
-  const [restoring, setRestoring] = useState(false);
-  const [message, setMessage] = useState(null);
-  const [showInstallGuide, setShowInstallGuide] = useState(false);
-  const [selectedApiKey, setSelectedApiKey] = useState("");
-  const [selectedModel, setSelectedModel] = useState("");
-  const [modalOpen, setModalOpen] = useState(false);
-  const [modelAliases, setModelAliases] = useState({});
-  const [showManualConfigModal, setShowManualConfigModal] = useState(false);
-  const [customBaseUrl, setCustomBaseUrl] = useState("");
+  const [{ status, checking, applying, restoring, message, showInstallGuide, selectedApiKey, selectedModel, modalOpen, modelAliases, showManualConfigModal, customBaseUrl }, dispatch] = useReducer(reducer, initialStatus, (init) => ({
+    ...initialState,
+    status: init || null,
+    selectedModel: init?.settings?.openAiModelId || "",
+  }));
 
-  useEffect(() => {
-    if (apiKeys?.length > 0 && !selectedApiKey) setSelectedApiKey(apiKeys[0].key);
-  }, [apiKeys, selectedApiKey]);
+  const effectiveApiKey = selectedApiKey || apiKeys?.[0]?.key || "";
 
-  useEffect(() => {
-    if (initialStatus) setStatus(initialStatus);
-  }, [initialStatus]);
-
-  useEffect(() => {
-    if (isExpanded && !status) {
-      checkStatus();
-      fetchModelAliases();
-    }
-    if (isExpanded) fetchModelAliases();
-  }, [isExpanded]);
-
-  useEffect(() => {
-    if (status?.settings?.openAiModelId) setSelectedModel(status.settings.openAiModelId);
-  }, [status]);
+  const configStatus = useMemo(() => {
+    if (!status?.installed) return null;
+    if (!status.has9Router) return "not_configured";
+    const url = status.settings?.openAiBaseUrl || "";
+    return matchKnownEndpoint(url, { tunnelPublicUrl, tailscaleUrl }) ? "configured" : "other";
+  }, [status, tunnelPublicUrl, tailscaleUrl]);
 
   const fetchModelAliases = async () => {
     try {
       const res = await fetch("/api/models/alias");
       const data = await res.json();
-      if (res.ok) setModelAliases(data.aliases || {});
+      if (res.ok) dispatch({ type: 'setModelAliases', value: data.aliases || {} });
     } catch (error) {
       console.log("Error fetching model aliases:", error);
     }
   };
 
-  const getConfigStatus = () => {
-    if (!status?.installed) return null;
-    if (!status.has9Router) return "not_configured";
-    const url = status.settings?.openAiBaseUrl || "";
-    return matchKnownEndpoint(url, { tunnelPublicUrl, tailscaleUrl }) ? "configured" : "other";
+  const checkStatus = async () => {
+    dispatch({ type: 'setChecking', value: true });
+    try {
+      const res = await fetch("/api/cli-tools/cline-settings");
+      const data = await res.json();
+      dispatch({ type: 'setStatus', value: data });
+    } catch (error) {
+      dispatch({ type: 'setStatus', value: { installed: false, error: error.message } });
+    } finally {
+      dispatch({ type: 'setChecking', value: false });
+    }
   };
 
-  const configStatus = getConfigStatus();
+  const handleToggle = useCallback(() => {
+    if (!isExpanded) {
+      if (!status) {
+        dispatch({ type: 'setChecking', value: true });
+        fetch("/api/cli-tools/cline-settings")
+          .then((r) => r.json())
+          .then((data) => dispatch({ type: 'setStatus', value: data }))
+          .catch((error) => dispatch({ type: 'setStatus', value: { installed: false, error: error.message } }))
+          .finally(() => dispatch({ type: 'setChecking', value: false }));
+      }
+      fetch("/api/models/alias")
+        .then((r) => r.json())
+        .then((data) => { if (data) dispatch({ type: 'setModelAliases', value: data.aliases || {} }); })
+        .catch(() => {});
+    }
+    onToggle();
+  }, [isExpanded, onToggle, status]);
 
   const getEffectiveBaseUrl = () => {
     const url = customBaseUrl || `${baseUrl}/v1`;
@@ -67,26 +105,13 @@ export default function ClineToolCard({ tool, isExpanded, onToggle, baseUrl, api
 
   const getDisplayUrl = () => customBaseUrl || `${baseUrl}/v1`;
 
-  const checkStatus = async () => {
-    setChecking(true);
-    try {
-      const res = await fetch("/api/cli-tools/cline-settings");
-      const data = await res.json();
-      setStatus(data);
-    } catch (error) {
-      setStatus({ installed: false, error: error.message });
-    } finally {
-      setChecking(false);
-    }
-  };
-
   const handleApply = async () => {
-    setApplying(true);
-    setMessage(null);
+    dispatch({ type: 'setApplying', value: true });
+    dispatch({ type: 'setMessage', value: null });
     try {
-      const keyToUse = (selectedApiKey && selectedApiKey.trim())
-        ? selectedApiKey
-        : (!cloudEnabled ? "sk_9router" : selectedApiKey);
+      const keyToUse = (effectiveApiKey && effectiveApiKey.trim())
+        ? effectiveApiKey
+        : (!cloudEnabled ? "sk_9router" : effectiveApiKey);
 
       const res = await fetch("/api/cli-tools/cline-settings", {
         method: "POST",
@@ -95,41 +120,41 @@ export default function ClineToolCard({ tool, isExpanded, onToggle, baseUrl, api
       });
       const data = await res.json();
       if (res.ok) {
-        setMessage({ type: "success", text: "Settings applied successfully!" });
+        dispatch({ type: 'setMessage', value: { type: "success", text: "Settings applied successfully!" } });
         checkStatus();
       } else {
-        setMessage({ type: "error", text: data.error || "Failed to apply settings" });
+        dispatch({ type: 'setMessage', value: { type: "error", text: data.error || "Failed to apply settings" } });
       }
     } catch (error) {
-      setMessage({ type: "error", text: error.message });
+      dispatch({ type: 'setMessage', value: { type: "error", text: error.message } });
     } finally {
-      setApplying(false);
+      dispatch({ type: 'setApplying', value: false });
     }
   };
 
   const handleReset = async () => {
-    setRestoring(true);
-    setMessage(null);
+    dispatch({ type: 'setRestoring', value: true });
+    dispatch({ type: 'setMessage', value: null });
     try {
       const res = await fetch("/api/cli-tools/cline-settings", { method: "DELETE" });
       const data = await res.json();
       if (res.ok) {
-        setMessage({ type: "success", text: "Settings reset successfully!" });
-        setSelectedModel("");
+        dispatch({ type: 'setMessage', value: { type: "success", text: "Settings reset successfully!" } });
+        dispatch({ type: 'setSelectedModel', value: "" });
         checkStatus();
       } else {
-        setMessage({ type: "error", text: data.error || "Failed to reset settings" });
+        dispatch({ type: 'setMessage', value: { type: "error", text: data.error || "Failed to reset settings" } });
       }
     } catch (error) {
-      setMessage({ type: "error", text: error.message });
+      dispatch({ type: 'setMessage', value: { type: "error", text: error.message } });
     } finally {
-      setRestoring(false);
+      dispatch({ type: 'setRestoring', value: false });
     }
   };
 
   const getManualConfigs = () => {
-    const keyToUse = (selectedApiKey && selectedApiKey.trim())
-      ? selectedApiKey
+    const keyToUse = (effectiveApiKey && effectiveApiKey.trim())
+      ? effectiveApiKey
       : (!cloudEnabled ? "sk_9router" : "<API_KEY_FROM_DASHBOARD>");
     const effectiveUrl = getEffectiveBaseUrl();
     const baseWithoutV1 = effectiveUrl.endsWith("/v1") ? effectiveUrl.slice(0, -3) : effectiveUrl;
@@ -154,7 +179,7 @@ export default function ClineToolCard({ tool, isExpanded, onToggle, baseUrl, api
 
   return (
     <Card padding="xs" className="overflow-hidden">
-      <div className="flex items-start justify-between gap-3 hover:cursor-pointer sm:items-center" onClick={onToggle}>
+      <button type="button" className="flex items-start justify-between gap-3 hover:cursor-pointer sm:items-center" onClick={handleToggle} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleToggle(); } }}>
         <div className="flex min-w-0 items-center gap-3">
           <div className="size-8 flex items-center justify-center shrink-0">
             <Image src="/providers/cline.png" alt={tool.name} width={32} height={32} className="size-8 object-contain rounded-lg" sizes="32px" onError={(e) => { e.target.style.display = "none"; }} />
@@ -170,7 +195,7 @@ export default function ClineToolCard({ tool, isExpanded, onToggle, baseUrl, api
           </div>
         </div>
         <span className={`material-symbols-outlined text-text-muted text-[20px] transition-transform ${isExpanded ? "rotate-180" : ""}`}>expand_more</span>
-      </div>
+      </button>
 
       {isExpanded && (
         <div className="mt-4 pt-4 border-t border-border flex flex-col gap-4">
@@ -192,11 +217,11 @@ export default function ClineToolCard({ tool, isExpanded, onToggle, baseUrl, api
                   </div>
                 </div>
                 <div className="flex items-center gap-2 pl-9">
-                  <Button variant="secondary" size="sm" onClick={() => setShowManualConfigModal(true)} className="!bg-yellow-500/20 !border-yellow-500/40 !text-yellow-700 dark:!text-yellow-300 hover:!bg-yellow-500/30">
+                  <Button variant="secondary" size="sm" onClick={() => dispatch({ type: 'setShowManualConfigModal', value: true })} className="!bg-yellow-500/20 !border-yellow-500/40 !text-yellow-700 dark:!text-yellow-300 hover:!bg-yellow-500/30">
                     <span className="material-symbols-outlined text-[18px] mr-1">content_copy</span>
                     Manual Config
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => setShowInstallGuide(!showInstallGuide)}>
+                  <Button variant="outline" size="sm" onClick={() => dispatch({ type: 'setShowInstallGuide', value: !showInstallGuide })}>
                     <span className="material-symbols-outlined text-[18px] mr-1">{showInstallGuide ? "expand_less" : "help"}</span>
                     {showInstallGuide ? "Hide" : "How to Install"}
                   </Button>
@@ -221,7 +246,7 @@ export default function ClineToolCard({ tool, isExpanded, onToggle, baseUrl, api
                   <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
                   <BaseUrlSelect
                     value={customBaseUrl || getDisplayUrl()}
-                    onChange={setCustomBaseUrl}
+                    onChange={(v) => dispatch({ type: 'setCustomBaseUrl', value: v })}
                     requiresExternalUrl={tool.requiresExternalUrl}
                     tunnelEnabled={tunnelEnabled}
                     tunnelPublicUrl={tunnelPublicUrl}
@@ -243,17 +268,17 @@ export default function ClineToolCard({ tool, isExpanded, onToggle, baseUrl, api
                 <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr_auto] sm:items-center sm:gap-2">
                   <span className="text-xs font-semibold text-text-main sm:text-right sm:text-sm">API Key</span>
                   <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
-                  <ApiKeySelect value={selectedApiKey} onChange={setSelectedApiKey} apiKeys={apiKeys} cloudEnabled={cloudEnabled} />
+                  <ApiKeySelect value={effectiveApiKey} onChange={(v) => dispatch({ type: 'setSelectedApiKey', value: v })} apiKeys={apiKeys} cloudEnabled={cloudEnabled} />
                 </div>
 
                 <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[8rem_auto_1fr_auto] sm:items-center sm:gap-2">
                   <span className="text-xs font-semibold text-text-main sm:text-right sm:text-sm">Model</span>
                   <span className="material-symbols-outlined hidden text-text-muted text-[14px] sm:inline">arrow_forward</span>
                   <div className="relative w-full min-w-0">
-                    <input type="text" value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)} placeholder="provider/model-id" className="w-full min-w-0 pl-2 pr-7 py-2 bg-surface rounded border border-border text-xs focus:outline-none focus:ring-1 focus:ring-primary/50 sm:py-1.5" />
-                    {selectedModel && <button onClick={() => setSelectedModel("")} className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-text-muted hover:text-red-500 rounded transition-colors" title="Clear"><span className="material-symbols-outlined text-[14px]">close</span></button>}
+                    <input type="text" value={selectedModel} onChange={(e) => dispatch({ type: 'setSelectedModel', value: e.target.value })} placeholder="provider/model-id" aria-label="Model ID" className="w-full min-w-0 pl-2 pr-7 py-2 bg-surface rounded border border-border text-xs focus:outline-none focus:ring-1 focus:ring-primary/50 sm:py-1.5" />
+                    {selectedModel && <button type="button" onClick={() => dispatch({ type: 'setSelectedModel', value: "" })} className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-text-muted hover:text-red-500 rounded transition-colors" title="Clear"><span className="material-symbols-outlined text-[14px]">close</span></button>}
                   </div>
-                  <button onClick={() => setModalOpen(true)} disabled={!activeProviders?.length} className={`w-full sm:w-auto rounded border px-2 py-2 text-xs transition-colors sm:py-1.5 whitespace-nowrap sm:shrink-0 ${activeProviders?.length ? "bg-surface border-border text-text-main hover:border-primary cursor-pointer" : "opacity-50 cursor-not-allowed border-border"}`}>Select Model</button>
+                  <button type="button" onClick={() => dispatch({ type: 'setModalOpen', value: true })} disabled={!activeProviders?.length} className={`w-full sm:w-auto rounded border px-2 py-2 text-xs transition-colors sm:py-1.5 whitespace-nowrap sm:shrink-0 ${activeProviders?.length ? "bg-surface border-border text-text-main hover:border-primary cursor-pointer" : "opacity-50 cursor-not-allowed border-border"}`}>Select Model</button>
                 </div>
               </div>
 
@@ -265,13 +290,13 @@ export default function ClineToolCard({ tool, isExpanded, onToggle, baseUrl, api
               )}
 
               <div className="grid grid-cols-1 gap-2 sm:flex sm:items-center">
-                <Button variant="primary" size="sm" onClick={handleApply} disabled={(!selectedApiKey && (cloudEnabled && apiKeys.length > 0)) || !selectedModel} loading={applying}>
+                <Button variant="primary" size="sm" onClick={handleApply} disabled={(!effectiveApiKey && (cloudEnabled && apiKeys.length > 0)) || !selectedModel} loading={applying}>
                   <span className="material-symbols-outlined text-[14px] mr-1">save</span>Apply
                 </Button>
                 <Button variant="outline" size="sm" onClick={handleReset} disabled={restoring} loading={restoring}>
                   <span className="material-symbols-outlined text-[14px] mr-1">restore</span>Reset
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => setShowManualConfigModal(true)}>
+                <Button variant="ghost" size="sm" onClick={() => dispatch({ type: 'setShowManualConfigModal', value: true })}>
                   <span className="material-symbols-outlined text-[14px] mr-1">content_copy</span>Manual Config
                 </Button>
               </div>
@@ -282,8 +307,8 @@ export default function ClineToolCard({ tool, isExpanded, onToggle, baseUrl, api
 
       <ModelSelectModal
         isOpen={modalOpen}
-        onClose={() => setModalOpen(false)}
-        onSelect={(model) => { setSelectedModel(model.value); setModalOpen(false); }}
+        onClose={() => dispatch({ type: 'setModalOpen', value: false })}
+        onSelect={(model) => { dispatch({ type: 'setSelectedModel', value: model.value }); dispatch({ type: 'setModalOpen', value: false }); }}
         selectedModel={selectedModel}
         activeProviders={activeProviders}
         modelAliases={modelAliases}
@@ -292,7 +317,7 @@ export default function ClineToolCard({ tool, isExpanded, onToggle, baseUrl, api
 
       <ManualConfigModal
         isOpen={showManualConfigModal}
-        onClose={() => setShowManualConfigModal(false)}
+        onClose={() => dispatch({ type: 'setShowManualConfigModal', value: false })}
         title="Cline - Manual Configuration"
         configs={getManualConfigs()}
       />

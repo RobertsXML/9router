@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withLocalAuth } from "@/app/api/_lib/auth";
 import { createProxyPool } from "@/models";
 
 const DENO_V2_API = "https://api.deno.com/v2";
@@ -44,7 +45,7 @@ const DENO_RELAY_CODE = `Deno.serve(async (request) => {
   }
 });`;
 
-export async function POST(request) {
+export const POST = withLocalAuth(async (request) => {
   try {
     const body = await request.json();
     const denoToken = body.denoToken?.trim();
@@ -81,13 +82,13 @@ export async function POST(request) {
     });
 
     if (!createAppRes.ok) {
-      const text = await createAppRes.text().catch(() => "");
       if (createAppRes.status === 409) {
         return NextResponse.json(
           { error: `App "${projectName}" already exists. Choose a different name.` },
           { status: 409 }
         );
       }
+      const text = await createAppRes.text().catch(() => "");
       return NextResponse.json(
         { error: `Failed to create app (${createAppRes.status}): ${text}` },
         { status: createAppRes.status }
@@ -133,11 +134,13 @@ export async function POST(request) {
       if (attempts >= maxAttempts) {
         throw new Error("Deploy timed out after 60 seconds");
       }
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      await new Promise((resolve) => setTimeout(resolve, 2000)); // react-doctor-disable-line react-doctor/async-await-in-loop -- sequential: polling delay between checks
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: poll deployment status until complete
       const statusRes = await fetch(`${DENO_V2_API}/revisions/${revisionId}`, {
         headers: { Authorization: `Bearer ${denoToken}` },
       });
       if (!statusRes.ok) break;
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: poll loop response parse
       const statusData = await statusRes.json();
       status = statusData.status;
       attempts++;
@@ -172,4 +175,4 @@ export async function POST(request) {
     console.log("Error deploying Deno Deploy relay:", error);
     return NextResponse.json({ error: error.message || "Deploy failed" }, { status: 500 });
   }
-}
+});

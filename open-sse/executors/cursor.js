@@ -528,12 +528,13 @@ export class CursorExecutor extends BaseExecutor {
         if (toolCallsMap.has(tc.id)) {
           // Accumulate arguments for existing tool call
           const existing = toolCallsMap.get(tc.id);
+          const tcArgs = tc.function.arguments;
           const oldArgsLen = existing.function.arguments.length;
-          existing.function.arguments += tc.function.arguments;
+          existing.function.arguments += tcArgs;
           existing.isLast = tc.isLast;
 
           // Stream the delta arguments
-          if (tc.function.arguments) {
+          if (tcArgs) {
             emittedToolCallIds.add(tc.id);
             chunks.push(chatChunkSse({
               id: responseId, created, model,
@@ -545,7 +546,7 @@ export class CursorExecutor extends BaseExecutor {
                     type: "function",
                     function: {
                       name: tc.function.name,
-                      arguments: tc.function.arguments
+                      arguments: tcArgs
                     }
                   }
                 ]
@@ -685,4 +686,4 @@ export class CursorExecutor extends BaseExecutor {
   }
 }
 
-export default CursorExecutor;
+// ponytail: removed unused default export; add back if dynamic import pattern changes

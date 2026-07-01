@@ -1,8 +1,10 @@
 import { ensureDirs, DATA_FILE } from "./paths.js";
+import { registerInit, getState } from "./dbState.js";
 
-// Use global to survive Next.js dev hot-reload (module state resets on reload)
-if (!global._dbAdapter) global._dbAdapter = { instance: null, initPromise: null, logged: false };
-const state = global._dbAdapter;
+// Re-export so existing consumers (usageRepo, metaStore async, etc.) still work
+export { getAdapter, getAdapterSync } from "./dbState.js";
+
+const state = getState();
 
 async function tryBunSqlite() {
   // Bun runtime only — built-in, no install needed
@@ -73,13 +75,5 @@ async function initAdapter() {
   return adapter;
 }
 
-export async function getAdapter() {
-  if (state.instance) return state.instance;
-  if (!state.initPromise) state.initPromise = initAdapter().then((a) => { state.instance = a; return a; });
-  return state.initPromise;
-}
-
-export function getAdapterSync() {
-  if (!state.instance) throw new Error("[DB] adapter not initialized — await getAdapter() first");
-  return state.instance;
-}
+// Register initAdapter with the singleton so getAdapter() can call it
+registerInit(initAdapter);

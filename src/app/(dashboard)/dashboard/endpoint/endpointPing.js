@@ -17,7 +17,7 @@ export async function clientPingUrl(url) {
 
 // Race multiple URLs: resolve true as soon as any one passes ping.
 export async function clientPingAny(...urls) {
-  const checks = urls.filter(Boolean).map(clientPingUrl);
+  const checks = []; for (const u of urls) { if (u) checks.push(clientPingUrl(u)); }
   if (!checks.length) return false;
   return new Promise((resolve) => {
     let pending = checks.length;

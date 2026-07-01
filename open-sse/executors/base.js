@@ -140,6 +140,7 @@ export class BaseExecutor {
         const bodyStr = JSON.stringify(transformedBody);
         const fetchT0 = Date.now();
         dbg("FETCH", `${this.provider.toUpperCase()} → ${url} | body=${bodyStr.length}B | connectTimeout=${timeoutMs}ms`);
+        // react-doctor-disable-next-line react-doctor/async-await-in-loop -- sequential: fallback URLs tried in order, each depends on previous failure
         const response = await proxyAwareFetch(url, {
           method: "POST",
           headers,

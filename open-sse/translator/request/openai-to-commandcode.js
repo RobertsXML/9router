@@ -9,10 +9,11 @@
  *  - tool_result blocks (role=user): {type:"tool-result", toolCallId, toolName, output}
  *  - tools[*]: Anthropic plain {name, description, input_schema}
  */
-import { register } from "../index.js";
+import { register } from "../registry.js";
 import { FORMATS } from "../formats.js";
 import { randomUUID } from "crypto";
-import { ROLE, OPENAI_BLOCK } from "../schema/index.js";
+import { ROLE } from "../schema/roles.js";
+import { OPENAI_BLOCK } from "../schema/blocks.js";
 import { DEFAULT_MAX_TOKENS } from "../../config/runtimeConfig.js";
 
 function flattenText(content) {

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withLocalAuth } from "@/app/api/_lib/auth";
 import { createProxyPool } from "@/models";
 
 // Relay worker source code deployed to Cloudflare
@@ -47,7 +48,7 @@ export default {
 `;
 
 // POST /api/proxy-pools/cloudflare-deploy
-export async function POST(request) {
+export const POST = withLocalAuth(async (request) => {
   try {
     const body = await request.json();
     const accountId = body.accountId?.trim();
@@ -142,4 +143,4 @@ export async function POST(request) {
     console.log("Error deploying Cloudflare relay:", error);
     return NextResponse.json({ error: error.message || "Deploy failed" }, { status: 500 });
   }
-}
+});

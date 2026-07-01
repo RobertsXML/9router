@@ -1,4 +1,4 @@
-import { register } from "../index.js";
+import { register } from "../registry.js";
 import { FORMATS } from "../formats.js";
 import { DEFAULT_THINKING_AG_SIGNATURE, DEFAULT_THINKING_GEMINI_CLI_SIGNATURE } from "../../config/defaultThinkingSignature.js";
 import { ANTIGRAVITY_DEFAULT_SYSTEM } from "../../config/appConstants.js";
@@ -18,7 +18,8 @@ import {
   cleanJSONSchemaForAntigravity
 } from "../formats/gemini.js";
 import { deriveSessionId, toNumericSessionId } from "../../utils/sessionManager.js";
-import { ROLE, GEMINI_ROLE, OPENAI_BLOCK, CLAUDE_BLOCK } from "../schema/index.js";
+import { ROLE, GEMINI_ROLE } from "../schema/roles.js";
+import { OPENAI_BLOCK, CLAUDE_BLOCK } from "../schema/blocks.js";
 
 // Sanitize function names for Gemini API.
 // Gemini requires: starts with [a-zA-Z_], followed by [a-zA-Z0-9_.:\-], max 64 chars.

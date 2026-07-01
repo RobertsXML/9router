@@ -2,6 +2,7 @@ import { EventEmitter } from "events";
 import { getAdapter } from "../driver.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
 import { getMeta, setMeta } from "../helpers/metaStore.js";
+import { getProviderConnections } from "./connectionsRepo.js";
 
 function maskApiKey(key) {
   if (!key || typeof key !== "string") return null;
@@ -13,6 +14,9 @@ const PENDING_TIMEOUT_MS = 60 * 1000;
 const RING_CAP = 50;
 const CONN_CACHE_TTL_MS = 30 * 1000;
 const PERIOD_MS = { "24h": 86400000, "7d": 604800000, "30d": 2592000000, "60d": 5184000000 };
+
+const hourMinuteLabel = (ts) => new Date(ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
+const dateLabel = (d) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
 // In-memory state shared across Next.js modules
 if (!global._pendingRequests) global._pendingRequests = { byModel: {}, byAccount: {} };
@@ -104,7 +108,6 @@ function pushToRing(entry) {
 async function getConnectionMapCached() {
   if (Date.now() - connCache.ts < CONN_CACHE_TTL_MS) return connCache.map;
   try {
-    const { getProviderConnections } = await import("./connectionsRepo.js");
     const all = await getProviderConnections();
     const map = {};
     for (const c of all) map[c.id] = c.name || c.email || c.id;
@@ -233,26 +236,24 @@ export async function getActiveRequests() {
 
   await ensureRingInitialized();
   const seen = new Set();
-  const recentRequests = [...recentRing.items]
-    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-    .map((e) => {
-      const t = e.tokens || {};
-      return {
-        timestamp: e.timestamp, model: e.model, provider: e.provider || "",
-        promptTokens: t.prompt_tokens || t.input_tokens || 0,
-        completionTokens: t.completion_tokens || t.output_tokens || 0,
-        status: e.status || "ok",
-      };
-    })
-    .filter((e) => {
-      if (e.promptTokens === 0 && e.completionTokens === 0) return false;
-      const minute = e.timestamp ? e.timestamp.slice(0, 16) : "";
-      const key = `${e.model}|${e.provider}|${e.promptTokens}|${e.completionTokens}|${minute}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    })
-    .slice(0, 20);
+  const sorted = recentRing.items.toSorted((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  const recentRequests = [];
+  for (const e of sorted) {
+    const t = e.tokens || {};
+    const entry = {
+      timestamp: e.timestamp, model: e.model, provider: e.provider || "",
+      promptTokens: t.prompt_tokens || t.input_tokens || 0,
+      completionTokens: t.completion_tokens || t.output_tokens || 0,
+      status: e.status || "ok",
+    };
+    if (entry.promptTokens === 0 && entry.completionTokens === 0) continue;
+    const minute = entry.timestamp ? entry.timestamp.slice(0, 16) : "";
+    const key = `${entry.model}|${entry.provider}|${entry.promptTokens}|${entry.completionTokens}|${minute}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    recentRequests.push(entry);
+    if (recentRequests.length >= 20) break;
+  }
 
   const errorProvider = (Date.now() - lastErrorProvider.ts < 10000) ? lastErrorProvider.provider : "";
   return { activeRequests, recentRequests, errorProvider };
@@ -364,52 +365,47 @@ function loadDaysInRange(adapter, maxDays) {
 }
 
 export async function getUsageStats(period = "all") {
-  const db = await getAdapter();
-
-  const [{ getProviderConnections }, { getApiKeys }, { getProviderNodes }] = await Promise.all([
-    import("./connectionsRepo.js"),
+  const [db, { getApiKeys }, { getProviderNodes }] = await Promise.all([
+    getAdapter(),
     import("./apiKeysRepo.js"),
     import("./nodesRepo.js"),
   ]);
 
-  let allConnections = [];
-  try { allConnections = await getProviderConnections(); } catch {}
+  const [allConnections, nodes, allApiKeys] = await Promise.all([
+    getProviderConnections().catch(() => []),
+    getProviderNodes().catch(() => []),
+    getApiKeys().catch(() => []),
+  ]);
+
   const connectionMap = {};
   for (const c of allConnections) connectionMap[c.id] = c.name || c.email || c.id;
 
   const providerNodeNameMap = {};
-  try {
-    const nodes = await getProviderNodes();
-    for (const n of nodes) if (n.id && n.name) providerNodeNameMap[n.id] = n.name;
-  } catch {}
+  for (const n of nodes) if (n.id && n.name) providerNodeNameMap[n.id] = n.name;
 
-  let allApiKeys = [];
-  try { allApiKeys = await getApiKeys(); } catch {}
   const apiKeyMap = {};
   for (const k of allApiKeys) apiKeyMap[k.key] = { name: k.name, id: k.id, createdAt: k.createdAt };
 
   // recentRequests from live history (last 100 entries enough for 20 deduped)
   const recentRows = db.all(`SELECT timestamp, provider, model, tokens, status FROM usageHistory ORDER BY id DESC LIMIT 100`);
   const seen = new Set();
-  const recentRequests = recentRows
-    .map((r) => {
-      const t = parseJson(r.tokens, {}) || {};
-      return {
-        timestamp: r.timestamp, model: r.model, provider: r.provider || "",
-        promptTokens: t.prompt_tokens || t.input_tokens || 0,
-        completionTokens: t.completion_tokens || t.output_tokens || 0,
-        status: r.status || "ok",
-      };
-    })
-    .filter((e) => {
-      if (e.promptTokens === 0 && e.completionTokens === 0) return false;
-      const minute = e.timestamp ? e.timestamp.slice(0, 16) : "";
-      const key = `${e.model}|${e.provider}|${e.promptTokens}|${e.completionTokens}|${minute}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    })
-    .slice(0, 20);
+  const recentRequests = [];
+  for (const r of recentRows) {
+    const t = parseJson(r.tokens, {}) || {};
+    const e = {
+      timestamp: r.timestamp, model: r.model, provider: r.provider || "",
+      promptTokens: t.prompt_tokens || t.input_tokens || 0,
+      completionTokens: t.completion_tokens || t.output_tokens || 0,
+      status: r.status || "ok",
+    };
+    if (e.promptTokens === 0 && e.completionTokens === 0) continue;
+    const minute = e.timestamp ? e.timestamp.slice(0, 16) : "";
+    const key = `${e.model}|${e.provider}|${e.promptTokens}|${e.completionTokens}|${minute}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    recentRequests.push(e);
+    if (recentRequests.length >= 20) break;
+  }
 
   const stats = {
     totalRequests: 0,
@@ -677,8 +673,7 @@ export async function getChartData(period = "7d") {
     startOfDay.setHours(0, 0, 0, 0);
     const startTime = startOfDay.getTime();
     const endTime = startTime + bucketCount * bucketMs;
-    const labelFn = (ts) => new Date(ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
-    const buckets = Array.from({ length: bucketCount }, (_, i) => ({ label: labelFn(startTime + i * bucketMs), tokens: 0, cost: 0 }));
+    const buckets = Array.from({ length: bucketCount }, (_, i) => ({ label: hourMinuteLabel(startTime + i * bucketMs), tokens: 0, cost: 0 }));
 
     const rows = db.all(
       `SELECT timestamp, promptTokens, completionTokens, cost FROM usageHistory WHERE timestamp >= ?`,
@@ -699,9 +694,8 @@ export async function getChartData(period = "7d") {
   if (period === "24h") {
     const bucketCount = 24;
     const bucketMs = 3600000;
-    const labelFn = (ts) => new Date(ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
     const startTime = now - bucketCount * bucketMs;
-    const buckets = Array.from({ length: bucketCount }, (_, i) => ({ label: labelFn(startTime + i * bucketMs), tokens: 0, cost: 0 }));
+    const buckets = Array.from({ length: bucketCount }, (_, i) => ({ label: hourMinuteLabel(startTime + i * bucketMs), tokens: 0, cost: 0 }));
 
     const rows = db.all(
       `SELECT timestamp, promptTokens, completionTokens, cost FROM usageHistory WHERE timestamp >= ?`,
@@ -719,7 +713,6 @@ export async function getChartData(period = "7d") {
 
   const bucketCount = period === "7d" ? 7 : period === "30d" ? 30 : 60;
   const today = new Date();
-  const labelFn = (d) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
   // Build map of dateKey → day data
   const dayRows = loadDaysInRange(db, bucketCount);
@@ -732,7 +725,7 @@ export async function getChartData(period = "7d") {
     const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     const dayData = dayMap[dateKey];
     return {
-      label: labelFn(d),
+      label: dateLabel(d),
       tokens: dayData ? (dayData.promptTokens || 0) + (dayData.completionTokens || 0) : 0,
       cost: dayData ? (dayData.cost || 0) : 0,
     };
@@ -758,7 +751,6 @@ export async function getRecentLogs(limit = 200) {
 
     const connMap = {};
     try {
-      const { getProviderConnections } = await import("./connectionsRepo.js");
       const connections = await getProviderConnections();
       for (const c of connections) connMap[c.id] = c.name || c.email || "";
     } catch {}

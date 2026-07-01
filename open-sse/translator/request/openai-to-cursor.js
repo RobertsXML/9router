@@ -6,21 +6,19 @@
  * with partial schema mismatches. For stability, tool outputs are represented as
  * structured text blocks in user messages.
  */
-import { register } from "../index.js";
+import { register } from "../registry.js";
 import { FORMATS } from "../formats.js";
-import { ROLE, OPENAI_BLOCK, CLAUDE_BLOCK } from "../schema/index.js";
+import { ROLE } from "../schema/roles.js";
+import { OPENAI_BLOCK, CLAUDE_BLOCK } from "../schema/blocks.js";
 import { DEFAULT_MIN_TOKENS } from "../../config/runtimeConfig.js";
 
 function extractContent(content) {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
-    return content
-      .filter(part => {
-        if (!part || typeof part !== "object") return false;
-        return part.type === OPENAI_BLOCK.TEXT && typeof part.text === "string";
-      })
-      .map(part => part.text || "")
-      .join("");
+    return content.reduce((acc, part) => {
+      if (part && typeof part === "object" && part.type === OPENAI_BLOCK.TEXT && typeof part.text === "string") acc.push(part.text || "");
+      return acc;
+    }, []).join("");
   }
   return "";
 }
@@ -137,17 +135,13 @@ function convertMessages(messages) {
         });
         result.push(assistantMsg);
       } else if (msg.role === ROLE.ASSISTANT && Array.isArray(msg.content)) {
-        const extractedToolCalls = msg.content
-          .filter(b => b?.type === CLAUDE_BLOCK.TOOL_USE)
-          .map(b => ({
-            id: b.id || "",
-            type: OPENAI_BLOCK.FUNCTION,
-            function: {
-              name: b.name || "tool",
-              arguments: JSON.stringify(b.input || {})
-            }
-          }))
-          .filter(tc => tc.id);
+        const extractedToolCalls = msg.content.reduce((acc, b) => {
+          if (b?.type === CLAUDE_BLOCK.TOOL_USE) {
+            const tc = { id: b.id || "", type: OPENAI_BLOCK.FUNCTION, function: { name: b.name || "tool", arguments: JSON.stringify(b.input || {}) } };
+            if (tc.id) acc.push(tc);
+          }
+          return acc;
+        }, []);
 
         if (extractedToolCalls.length > 0) {
           result.push({

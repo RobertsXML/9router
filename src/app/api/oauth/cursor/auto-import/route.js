@@ -8,6 +8,7 @@ import { promisify } from "util";
 const execFileAsync = promisify(execFile);
 
 const ACCESS_TOKEN_KEYS = ["cursorAuth/accessToken", "cursorAuth/token"];
+const CURSOR_CANDIDATES = getCandidatePaths(process.platform);
 const MACHINE_ID_KEYS = [
   "storage.serviceMachineId",
   "storage.machineId",
@@ -174,43 +175,54 @@ async function extractTokensViaCLI(dbPath) {
  * Auto-detect and extract Cursor tokens from local SQLite database.
  * Strategy: better-sqlite3 → sqlite3 CLI → manual fallback
  */
+// Pre-compute db path and Linux desktop file check at module scope (hoisted I/O)
+const LINUX_CURSOR_DESKTOP = join(homedir(), ".local/share/applications/cursor.desktop");
+
+let cachedDbPath = null;
+const dbPathInit = (async () => {
+  for (const candidate of CURSOR_CANDIDATES) {
+    try {
+      await access(candidate, constants.R_OK);
+      cachedDbPath = candidate;
+      return;
+    } catch { /* try next */ }
+  }
+})();
+
+let linuxCursorInstalled = null;
+const linuxCheckInit = (async () => {
+  if (process.platform !== "linux") return;
+  try {
+    await execFileAsync("which", ["cursor"], { timeout: 5000 });
+    linuxCursorInstalled = true;
+    return;
+  } catch { /* not via which */ }
+  try {
+    await access(LINUX_CURSOR_DESKTOP, constants.R_OK);
+    linuxCursorInstalled = true;
+  } catch {
+    linuxCursorInstalled = false;
+  }
+})();
+
 export async function GET() {
   try {
     const platform = process.platform;
-    const candidates = getCandidatePaths(platform);
 
-    let dbPath = null;
-    for (const candidate of candidates) {
-      try {
-        await access(candidate, constants.R_OK);
-        dbPath = candidate;
-        break;
-      } catch {
-        // Try next candidate
-      }
-    }
+    await dbPathInit;
+    const dbPath = cachedDbPath;
 
     if (!dbPath) {
       return NextResponse.json({
         found: false,
-        error: `Cursor database not found. Checked locations:\n${candidates.join("\n")}\n\nMake sure Cursor IDE is installed and opened at least once.`,
+        error: `Cursor database not found. Checked locations:\n${CURSOR_CANDIDATES.join("\n")}\n\nMake sure Cursor IDE is installed and opened at least once.`,
       });
     }
 
     // On Linux, verify Cursor is actually installed (not just leftover config)
     if (platform === "linux") {
-      let cursorInstalled = false;
-      try {
-        await execFileAsync("which", ["cursor"], { timeout: 5000 });
-        cursorInstalled = true;
-      } catch {
-        try {
-          const desktopFile = join(homedir(), ".local/share/applications/cursor.desktop");
-          await access(desktopFile, constants.R_OK);
-          cursorInstalled = true;
-        } catch { /* not found */ }
-      }
-      if (!cursorInstalled) {
+      await linuxCheckInit; // eslint-disable-line react-doctor/async-defer-await -- await needed: linuxCursorInstalled depends on this promise
+      if (!linuxCursorInstalled) {
         return NextResponse.json({
           found: false,
           error: "Cursor config files found but Cursor IDE does not appear to be installed. Skipping auto-import.",

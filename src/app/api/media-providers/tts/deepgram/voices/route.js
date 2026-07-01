@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getProviderConnections } from "@/lib/localDb";
 
 const langNames = new Intl.DisplayNames(["en"], { type: "language" });
+const GENDER_TAGS = new Set(["masculine", "feminine"]);
 
 /**
  * GET /api/media-providers/tts/deepgram/voices[?lang=en]
@@ -28,6 +29,7 @@ export async function GET(request) {
     const ttsModels = data.tts || [];
 
     const byLang = {};
+    const voiceIdsByLang = {};
     for (const m of ttsModels) {
       // Deepgram returns `languages: ["en"]` or sometimes language inferred from canonical_name suffix
       const langs = Array.isArray(m.languages) && m.languages.length
@@ -40,20 +42,22 @@ export async function GET(request) {
             name: (() => { try { return langNames.of(code); } catch { return code; } })(),
             voices: [],
           };
+          voiceIdsByLang[code] = new Set();
         }
         const voiceId = m.canonical_name || m.name;
-        if (!byLang[code].voices.find((x) => x.id === voiceId)) {
+        if (!voiceIdsByLang[code].has(voiceId)) {
+          voiceIdsByLang[code].add(voiceId);
           byLang[code].voices.push({
             id: voiceId,
             name: m.name || voiceId,
-            gender: m.metadata?.tags?.find((t) => t === "masculine" || t === "feminine") || "",
+            gender: (() => { const tags = m.metadata?.tags; if (!tags) return ""; for (const t of tags) if (GENDER_TAGS.has(t)) return t; return ""; })(),
             lang: code,
           });
         }
       }
     }
 
-    const languages = Object.values(byLang).sort((a, b) => a.name.localeCompare(b.name));
+    const languages = Object.values(byLang).toSorted((a, b) => a.name.localeCompare(b.name));
 
     if (langFilter) {
       return NextResponse.json({ voices: byLang[langFilter]?.voices || [] });

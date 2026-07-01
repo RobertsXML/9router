@@ -2,13 +2,16 @@
  * Translator: OpenAI Chat Completions → OpenAI Responses API (response)
  * Converts streaming chunks from Chat Completions to Responses API events
  */
-import { register } from "../index.js";
+import { register } from "../registry.js";
 import { FORMATS } from "../formats.js";
 import { buildChunk } from "../concerns/chunk.js";
 import { buildUsage } from "../concerns/usage.js";
 import { fallbackToolCallId } from "../concerns/toolCall.js";
 import { reasoningDelta, extractReasoningText } from "../concerns/reasoning.js";
-import { ROLE, OPENAI_BLOCK, RESPONSES_ITEM, OPENAI_FINISH, MODEL_FALLBACK } from "../schema/index.js";
+import { ROLE } from "../schema/roles.js";
+import { OPENAI_BLOCK, RESPONSES_ITEM } from "../schema/blocks.js";
+import { OPENAI_FINISH } from "../schema/finishReasons.js";
+import { MODEL_FALLBACK } from "../schema/defaults.js";
 
 /**
  * Translate OpenAI chunk to Responses API events
@@ -283,17 +286,18 @@ function emitToolCall(state, emit, tc) {
 
   if (!state.funcArgsBuf[tcIdx]) state.funcArgsBuf[tcIdx] = "";
 
-  if (tc.function?.arguments) {
+  const tcArgs = tc.function?.arguments;
+  if (tcArgs) {
     const refCallId = state.funcCallIds[tcIdx] || newCallId;
     if (refCallId) {
       emit("response.function_call_arguments.delta", {
         type: "response.function_call_arguments.delta",
         item_id: `fc_${refCallId}`,
         output_index: tcIdx,
-        delta: tc.function.arguments
+        delta: tcArgs
       });
     }
-    state.funcArgsBuf[tcIdx] += tc.function.arguments;
+    state.funcArgsBuf[tcIdx] += tcArgs;
   }
 }
 

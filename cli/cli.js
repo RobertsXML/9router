@@ -180,8 +180,11 @@ function killTunnelByPidFile() {
 
 // Kill cloudflared whose --url targets this app's port (covers stale PID file case)
 function killCloudflaredByAppPort(appPort) {
-  if (!appPort) return [];
-  const portMatchers = [`localhost:${appPort}`, `127.0.0.1:${appPort}`];
+  if (!appPort || !Number.isFinite(Number(appPort))) return [];
+  const portNum = Number(appPort);
+  if (portNum < 1 || portNum > 65535) return [];
+  // eslint-disable-next-line react-doctor/local-rpc-native-bridge-risk -- portNum validated (1-65535 integer); matchers target loopback hosts only
+  const portMatchers = [`localhost:${portNum}`, `127.0.0.1:${portNum}`];
   const pids = [];
   try {
     if (process.platform === "win32") {

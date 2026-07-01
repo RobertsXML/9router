@@ -111,7 +111,7 @@ export function filterUsageForFormat(usage, targetFormat) {
 /**
  * Normalize usage object - ensure all values are valid numbers
  */
-export function normalizeUsage(usage) {
+function normalizeUsage(usage) {
   if (!usage || typeof usage !== "object" || Array.isArray(usage)) return null;
 
   const normalized = {};
@@ -236,7 +236,7 @@ export function extractUsage(chunk) {
  * Estimate input tokens from request body
  * Calculate total body size for more accurate estimation
  */
-export function estimateInputTokens(body) {
+function estimateInputTokens(body) {
   if (!body || typeof body !== "object") return 0;
 
   try {
@@ -255,7 +255,7 @@ export function estimateInputTokens(body) {
 /**
  * Estimate output tokens from content length
  */
-export function estimateOutputTokens(contentLength) {
+function estimateOutputTokens(contentLength) {
   if (!contentLength || contentLength <= 0) return 0;
   return Math.max(1, Math.floor(contentLength / 4));
 }
@@ -266,7 +266,7 @@ export function estimateOutputTokens(contentLength) {
  * @param {number} outputTokens - Output/completion tokens
  * @param {string} targetFormat - Target format from FORMATS
  */
-export function formatUsage(inputTokens, outputTokens, targetFormat) {
+function formatUsage(inputTokens, outputTokens, targetFormat) {
   // Claude format uses input_tokens/output_tokens
   if (targetFormat === FORMATS.CLAUDE) {
     return addBufferToUsage({ 
