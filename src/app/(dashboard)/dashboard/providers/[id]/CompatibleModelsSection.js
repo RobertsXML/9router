@@ -16,6 +16,7 @@ function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias,
     : testStatus === "testing"
     ? "border-blue-500/40"
     : "border-border";
+  console.log(`[COMPAT Row ${fullModel}] testStatus:`, testStatus, "deleteStatus:", deleteStatus, "borderColor:", borderColor);
 
   const iconColor = deleteStatus === "deleting"
     ? "#f97316"
@@ -262,6 +263,7 @@ export default function CompatibleModelsSection({ providerStorageAlias, provider
         if (result.model) {
           const modelId = result.model.substring(result.model.lastIndexOf("/") + 1);
           const status = result.ok ? "ok" : "error";
+          console.log(`[COMPAT SSE result] modelId: ${modelId} status: ${status} rawModel: ${result.model}`);
           setModelTestResults(prev => ({ ...prev, [modelId]: status }));
         } else if (result.error) {
           console.error("Batch test server error:", result.error);
@@ -269,11 +271,13 @@ export default function CompatibleModelsSection({ providerStorageAlias, provider
       });
 
       setModelTestResults(prev => {
+        console.log(`[COMPAT SSE cleanup] entries:`, Object.entries(prev).map(([k,v]) => `${k}=${v}`).join(", "));
         const updated = { ...prev };
         let changed = false;
         for (const key in updated) {
           if (updated[key] === "testing") { delete updated[key]; changed = true; }
         }
+        console.log(`[COMPAT SSE cleanup] after:`, Object.entries(updated).map(([k,v]) => `${k}=${v}`).join(", "));
         return changed ? updated : prev;
       });
     } catch (err) {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { useNotificationStore } from "@/store/notificationStore";
 import PropTypes from "prop-types";
 import { Card, Button, Modal, ConfirmModal } from "@/shared/components";
 import { getModelsByProviderId, getModelKind } from "@/shared/constants/models";
@@ -9,16 +10,17 @@ import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { useMultiSelect } from "@/shared/hooks/useMultiSelect";
 
 // ── ModelRow ───────────────────────────────────────────────────
-export function ModelRow({ model, fullModel, copied, onCopy, testStatus, deleteStatus, isCustom, isFree, onDeleteAlias, onTest, isTesting, checkbox }) {
-  const borderColor = deleteStatus === "deleting" ? "border-orange-500/40" : testStatus === "ok" ? "border-green-500/40" : testStatus === "error" ? "border-red-500/40" : testStatus === "testing" ? "border-blue-500/40" : "border-border";
-  const iconColor = deleteStatus === "deleting" ? "#f97316" : testStatus === "ok" ? "#22c55e" : testStatus === "error" ? "#ef4444" : undefined;
+export function ModelRow({ model, fullModel, copied, onCopy, testStatus, isCustom, isFree, onDeleteAlias, onTest, isTesting, checkbox, isDeleting }) {
+  const borderColor = isDeleting ? "border-border" : testStatus === "ok" ? "border-green-500/40" : testStatus === "error" ? "border-red-500/40" : testStatus === "testing" ? "border-blue-500/40" : "border-border";
+  const iconColor = isDeleting ? undefined : testStatus === "ok" ? "#22c55e" : testStatus === "error" ? "#ef4444" : undefined;
+  console.log(`[ModelRow ${fullModel}] isDeleting:`, isDeleting, "testStatus:", testStatus, "borderColor:", borderColor, "iconColor:", iconColor);
 
   return (
     <div className={`group px-3 py-2 rounded-lg border ${borderColor} hover:bg-sidebar/50`}>
       <div className="flex items-center gap-2">
         {checkbox}
         <span className="material-symbols-outlined text-base" style={iconColor ? { color: iconColor } : undefined}>
-          {deleteStatus === "deleting" ? "delete" : testStatus === "ok" ? "check_circle" : testStatus === "error" ? "cancel" : "smart_toy"}
+          {isDeleting ? "smart_toy" : testStatus === "ok" ? "check_circle" : testStatus === "error" ? "cancel" : "smart_toy"}
         </span>
         <div className="flex flex-col gap-1">
           <code className="text-xs text-text-muted font-mono bg-sidebar px-1.5 py-0.5 rounded">{fullModel}</code>
@@ -61,12 +63,12 @@ ModelRow.propTypes = {
   copied: PropTypes.string,
   onCopy: PropTypes.func.isRequired,
   testStatus: PropTypes.oneOf(["ok", "error", "testing"]),
-  deleteStatus: PropTypes.oneOf(["deleting"]),
   isCustom: PropTypes.bool,
   isFree: PropTypes.bool,
   onDeleteAlias: PropTypes.func,
   onTest: PropTypes.func,
   isTesting: PropTypes.bool,
+  isDeleting: PropTypes.bool,
   checkbox: PropTypes.node,
 };
 
@@ -124,9 +126,9 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
   const [connections, setConnections] = useState([]);
   const [confirmState, setConfirmState] = useState(null);
   const [bulkDeleting, setBulkDeleting] = useState(false);
-  const [deleteStatus, setDeleteStatus] = useState({});
   const abortControllerRef = useRef(null);
   const confirmFiredRef = useRef(false);
+  const deleteToastIdRef = useRef(null);
 
   useEffect(() => {
     return () => { abortControllerRef.current?.abort(); };
@@ -199,6 +201,8 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
 
   const handleTestModel = async (modelId) => {
     if (testingModelId) return;
+    console.log("[Test] handleTestModel called for:", modelId, "| providerAlias:", providerAlias);
+    console.log("[Test] bulkDeleting state:", bulkDeleting, "| isDeleting would be:", !!bulkDeleting);
     setTestingModelId(modelId);
     try {
       const res = await fetch("/api/models/test", {
@@ -207,9 +211,16 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
         body: JSON.stringify({ model: `${providerAlias}/${modelId}`, kind: kindFilter }),
       });
       const data = await res.json();
-      setModelTestResults((prev) => ({ ...prev, [modelId]: data.ok ? "ok" : "error" }));
+      console.log("[Test] API response for", modelId, ":", data);
+      const status = data.ok ? "ok" : "error";
+      setModelTestResults((prev) => {
+        console.log("[Test] setting modelTestResults for", modelId, "to", status);
+        console.log("[Test] prev modelTestResults:", prev);
+        return { ...prev, [modelId]: status };
+      });
       setTestError(data.ok ? "" : (data.error || "Model not reachable"));
     } catch {
+      console.log("[Test] catch block - network error for", modelId);
       setModelTestResults((prev) => ({ ...prev, [modelId]: "error" }));
       setTestError("Network error");
     } finally { setTestingModelId(null); }
@@ -245,6 +256,7 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
   const handleBulkDelete = () => {
     if (bulkDeleting || selectedItems.length === 0) return;
     if (testingBulk) return;
+    if (testingModelId) return;
     setConfirmState({
       title: "Delete Custom Models",
       message: `Delete ${selectedItems.length} custom model(s)?`,
@@ -253,21 +265,60 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
         setConfirmState(null);
         setBulkDeleting(true);
         const currentSelected = selectedItemsRef.current;
-        setDeleteStatus(Object.fromEntries(currentSelected.map(m => [m.id, "deleting"])));
+        const total = currentSelected.length;
+        let ok = 0;
+        let failed = 0;
+
+        // Show progress toast
+        const notify = useNotificationStore.getState();
+        console.log("[BulkDelete] adding progress toast, total:", total);
+        console.log("[BulkDelete] notifications before:", notify.notifications.length);
+        deleteToastIdRef.current = notify.addNotification({
+          type: "info",
+          message: `Proses delete model 0/${total}`,
+          dismissible: false,
+          duration: 0,
+        });
+        console.log("[BulkDelete] toast added, id:", deleteToastIdRef.current);
+        console.log("[BulkDelete] notifications after:", useNotificationStore.getState().notifications.length);
+
         try {
-          let ok = 0; let failed = 0;
-          for (const model of currentSelected) {
+          for (let i = 0; i < total; i++) {
+            const model = currentSelected[i];
             try {
               const params = new URLSearchParams({ providerAlias: model.providerAlias, id: model.id, type: model.type });
               const res = await fetch(`/api/models/custom?${params}`, { method: "DELETE" });
               if (res.ok) ok++; else failed++;
             } catch (err) { console.error("Delete failed:", model.id, err); failed++; }
+            // Update toast progress
+            if (deleteToastIdRef.current !== null) {
+              notify.removeNotification(deleteToastIdRef.current);
+            }
+            deleteToastIdRef.current = notify.addNotification({
+              type: "info",
+              message: `Proses delete model ${i + 1}/${total}`,
+              dismissible: false,
+              duration: 0,
+            });
           }
           if (ok > 0) window.dispatchEvent(new CustomEvent("customModelChanged"));
           await fetchData();
         } finally {
+          // Remove progress toast
+          const state = useNotificationStore.getState();
+          if (deleteToastIdRef.current !== null) {
+            state.removeNotification(deleteToastIdRef.current);
+            deleteToastIdRef.current = null;
+          }
+          // Show result toast
+          if (failed === 0) {
+            state.success(`Berhasil hapus ${ok} model`);
+          } else if (ok > 0) {
+            state.warning(`Berhasil hapus ${ok} model, ${failed} gagal`);
+          } else {
+            state.error(`Gagal hapus ${failed} model`);
+          }
           clearSelection();
-          setDeleteStatus({});
           setBulkDeleting(false);
           confirmFiredRef.current = false;
         }
@@ -457,10 +508,10 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
                 onSetAlias={(alias) => handleSetAlias(model.id, alias)}
                 onDeleteAlias={() => handleDeleteAlias(existingAlias)}
                 testStatus={modelTestResults[model.id]}
-                deleteStatus={deleteStatus[model.id]}
                 onTest={connections.length > 0 ? () => handleTestModel(model.id) : undefined}
                 isTesting={testingModelId === model.id}
                 isFree={model.isFree}
+                isDeleting={bulkDeleting}
               />
             );
           })}
@@ -475,10 +526,10 @@ export default function ModelsCard({ providerId, kindFilter, providerAliasOverri
                 onSetAlias={() => {}}
                 onDeleteAlias={() => handleDeleteCustomModel(model.id)}
                 testStatus={modelTestResults[model.id]}
-                deleteStatus={deleteStatus[model.id]}
                 onTest={connections.length > 0 ? () => handleTestModel(model.id) : undefined}
                 isTesting={testingModelId === model.id}
                 isCustom
+                isDeleting={bulkDeleting}
                 checkbox={
                   <input
                     type="checkbox"

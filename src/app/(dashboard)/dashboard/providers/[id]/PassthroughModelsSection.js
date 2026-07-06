@@ -16,6 +16,7 @@ function PassthroughModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias
     : testStatus === "testing"
     ? "border-blue-500/40"
     : "border-border";
+  console.log(`[PASS Row ${fullModel}] testStatus:`, testStatus, "deleteStatus:", deleteStatus, "borderColor:", borderColor);
 
   const iconColor = deleteStatus === "deleting"
     ? "#f97316"
